@@ -79,6 +79,74 @@ class TradeResponse(BaseModel):
     timestamp: str
     closed_at: Optional[str] = None
 
+class LoginRequest(BaseModel):
+    password: str
+
+class SystemStatus(BaseModel):
+    cfgi_api: str
+    polymarket_api: str
+    mongodb: str
+    telegram: str
+
+# Auth
+@api_router.post("/auth/login")
+async def login(request: LoginRequest):
+    if request.password == BOT_PASSWORD:
+        return {"authenticated": True, "message": "Login successful"}
+    raise HTTPException(status_code=401, detail="Invalid password")
+
+@api_router.get("/auth/verify")
+async def verify_password(password: str):
+    return {"authenticated": password == BOT_PASSWORD}
+
+# System Status
+@api_router.get("/system/status")
+async def get_system_status():
+    """Check status of all external services"""
+    import httpx
+    
+    status = {
+        "cfgi_api": "unknown",
+        "polymarket_api": "unknown", 
+        "mongodb": "unknown",
+        "telegram": "unknown"
+    }
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Check CFGI.io
+        try:
+            resp = await client.get("https://cfgi.io/bitcoin-fear-greed-index/15m")
+            status["cfgi_api"] = "online" if resp.status_code == 200 else "error"
+        except:
+            status["cfgi_api"] = "offline"
+        
+        # Check Polymarket
+        try:
+            resp = await client.get("https://gamma-api.polymarket.com/markets?limit=1")
+            status["polymarket_api"] = "online" if resp.status_code == 200 else "error"
+        except:
+            status["polymarket_api"] = "offline"
+        
+        # Check Telegram
+        try:
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            if bot_token:
+                resp = await client.get(f"https://api.telegram.org/bot{bot_token}/getMe")
+                status["telegram"] = "online" if resp.status_code == 200 else "error"
+            else:
+                status["telegram"] = "not_configured"
+        except:
+            status["telegram"] = "offline"
+    
+    # Check MongoDB
+    try:
+        await db.command("ping")
+        status["mongodb"] = "online"
+    except:
+        status["mongodb"] = "offline"
+    
+    return status
+
 # Health & Root
 @api_router.get("/")
 async def root():
