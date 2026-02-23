@@ -403,7 +403,8 @@ class PolymarketService:
             
             # Get USDC balance from polygon RPC
             try:
-                rpc_url = os.environ.get("RPC_URL", "https://polygon-rpc.com")
+                # Use a reliable public RPC
+                rpc_url = "https://polygon-mainnet.g.alchemy.com/v2/demo"
                 usdc_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
                 
                 # Simple balance check using eth_call
@@ -428,7 +429,7 @@ class PolymarketService:
             
             # Get MATIC balance
             try:
-                rpc_url = os.environ.get("RPC_URL", "https://polygon-rpc.com")
+                rpc_url = "https://polygon-mainnet.g.alchemy.com/v2/demo"
                 payload = {
                     "jsonrpc": "2.0",
                     "method": "eth_getBalance",
