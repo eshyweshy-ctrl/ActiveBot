@@ -7,5 +7,6 @@ pymongo==4.11.3
 pydantic==2.11.3
 httpx==0.28.1
 web3==7.14.1
-py-clob-client==0.0.9
+py-clob-client>=0.34.0
+py-order-utils>=0.3.0
 eth-account==0.13.7
