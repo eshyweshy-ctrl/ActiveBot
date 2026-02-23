@@ -96,13 +96,13 @@ class PolymarketService:
             from py_clob_client.client import ClobClient
             
             # Initialize CLOB client with private key
-            # Use signature_type=0 (Poly Proxy) for order signing
-            # The funder parameter links to the proxy wallet that holds the funds
+            # Use signature_type=2 (POLY_GNOSIS_SAFE) for Polymarket proxy wallets
+            # This works for both balance checking AND order signing
             self._clob_client = ClobClient(
                 self.CLOB_HOST,
                 key=self.private_key,
                 chain_id=self.CHAIN_ID,
-                signature_type=0,  # Poly Proxy signature for trading
+                signature_type=2,  # POLY_GNOSIS_SAFE - required for proxy wallet trading
                 funder=self.proxy_address if self.proxy_address else None
             )
             
@@ -112,7 +112,7 @@ class PolymarketService:
             self._clob_client.set_api_creds(api_creds)
             
             logger.info(f"API Key derived: {api_creds.api_key}")
-            logger.info(f"Using signature_type=0 (Poly Proxy)")
+            logger.info(f"Using signature_type=2 (POLY_GNOSIS_SAFE)")
             if self.proxy_address:
                 logger.info(f"Funder (proxy): {self.proxy_address}")
             
