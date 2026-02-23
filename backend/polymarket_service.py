@@ -434,12 +434,16 @@ class PolymarketService:
                 from py_clob_client.client import ClobClient
                 from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
                 
+                # CRITICAL: Must use proxy_address as funder for balance check
+                if not proxy_address:
+                    logger.warning("No proxy address set, balance check may fail")
+                
                 clob_client = ClobClient(
                     self.CLOB_HOST,
                     key=self.private_key,
                     chain_id=self.CHAIN_ID,
                     signature_type=2,  # POLY_GNOSIS_SAFE for proxy wallet
-                    funder=proxy_address
+                    funder=proxy_address  # Must be the Gnosis Safe proxy address
                 )
                 
                 api_creds = clob_client.derive_api_key()
