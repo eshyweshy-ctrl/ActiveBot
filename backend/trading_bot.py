@@ -24,12 +24,12 @@ class ActiveBot:
         self.db = db
         self.dry_run = dry_run
         
-        # Services
+        # Services - CFGI is ALWAYS real, only trading is simulated in dry_run
+        self.cfgi_service = CFGIService()  # Always use real sentiment data
+        
         if dry_run:
-            self.cfgi_service = SimulatedCFGIService()
             self.polymarket_service = SimulatedPolymarketService()
         else:
-            self.cfgi_service = CFGIService()
             self.polymarket_service = PolymarketService()
         
         self.telegram_service = TelegramService()
