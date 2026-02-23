@@ -57,6 +57,8 @@ class PolymarketService:
         self.private_key = private_key or os.environ.get("POLYMARKET_PRIVATE_KEY", "")
         # Use explicit wallet address if provided (for cases where PK doesn't match trading wallet)
         self.wallet_address = os.environ.get("POLYMARKET_WALLET_ADDRESS", "")
+        # Proxy wallet address (where Polymarket deposits go)
+        self.proxy_address = os.environ.get("POLYMARKET_PROXY_ADDRESS", "")
         # API credentials for CLOB
         self.api_key = os.environ.get("POLYMARKET_API_KEY", "")
         self.api_secret = os.environ.get("POLYMARKET_API_SECRET", "")
