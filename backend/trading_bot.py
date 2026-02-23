@@ -282,8 +282,6 @@ class ActiveBot:
                 win_rate=stats['win_rate'],
                 total_trades=stats['total_trades']
             )
-                is_win=trade.status == "WON"
-            )
     
     async def get_stats(self) -> Dict:
         """Get bot statistics"""
