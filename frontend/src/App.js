@@ -53,6 +53,14 @@ function App() {
     mongodb: "unknown",
     telegram: "unknown",
   });
+  const [walletInfo, setWalletInfo] = useState({
+    address: null,
+    address_short: null,
+    usdc_balance: 0,
+    matic_balance: 0,
+    positions_value: 0,
+    total_value: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   // Check if already logged in
