@@ -8,6 +8,7 @@ import httpx
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
 from dataclasses import dataclass
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +26,46 @@ class CryptoMarket:
     asset: str  # BTC, ETH, SOL
 
 class PolymarketService:
-    """Service for interacting with Polymarket"""
+    """Service for interacting with Polymarket - LIVE TRADING"""
     
     GAMMA_HOST = "https://gamma-api.polymarket.com"
     CLOB_HOST = "https://clob.polymarket.com"
+    CHAIN_ID = 137  # Polygon mainnet
     
     def __init__(self, private_key: Optional[str] = None):
         self.private_key = private_key or os.environ.get("POLYMARKET_PRIVATE_KEY", "")
         self.client = httpx.AsyncClient(timeout=30.0)
-        self._api_creds = None
+        self._clob_client = None
+        self._initialized = False
+    
+    async def _init_clob_client(self):
+        """Initialize the CLOB client for trading"""
+        if self._initialized:
+            return
+        
+        try:
+            from py_clob_client.client import ClobClient
+            from py_clob_client.clob_types import ApiCreds
+            
+            # Initialize CLOB client
+            self._clob_client = ClobClient(
+                self.CLOB_HOST,
+                key=self.private_key,
+                chain_id=self.CHAIN_ID
+            )
+            
+            # Derive API credentials
+            self._clob_client.set_api_creds(self._clob_client.derive_api_key())
+            
+            self._initialized = True
+            logger.info("Polymarket CLOB client initialized successfully")
+            
+        except ImportError as e:
+            logger.error(f"py-clob-client not installed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to initialize CLOB client: {e}")
+            raise
     
     async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
         """Fetch active 15-minute crypto direction markets"""
@@ -106,26 +138,78 @@ class PolymarketService:
         """
         Place a market order on Polymarket
         
-        In production, this would use the py-clob-client SDK
-        For now, returns simulated result
+        Uses py-clob-client for real order execution
         """
-        logger.info(f"Placing order: {'BUY' if is_buy else 'SELL'} {amount_usdc} USDC on token {token_id[:20]}...")
+        logger.info(f"[LIVE] Placing order: {'BUY' if is_buy else 'SELL'} {amount_usdc} USDC on token {token_id[:20]}...")
         
-        # In production, this would execute via:
-        # from py_clob_client.client import ClobClient
-        # client = ClobClient(self.CLOB_HOST, 137, key=self.private_key)
-        # market_order = client.createMarketOrder(...)
-        # response = client.postOrder(market_order, OrderType.FOK)
-        
-        # Simulated response for dry-run
-        return {
-            "success": True,
-            "order_id": f"sim_{datetime.now(timezone.utc).timestamp()}",
-            "status": "matched",
-            "executed_price": 0.5,
-            "tx_hash": None,
-            "simulated": True
-        }
+        try:
+            await self._init_clob_client()
+            
+            from py_clob_client.clob_types import OrderArgs, OrderType
+            from py_clob_client.order_builder.constants import BUY, SELL
+            
+            # Get current price from orderbook
+            orderbook = await self.get_order_book(token_id)
+            
+            # For market buy, use best ask price
+            if is_buy and orderbook.get('asks'):
+                price = float(orderbook['asks'][0]['price'])
+            elif not is_buy and orderbook.get('bids'):
+                price = float(orderbook['bids'][0]['price'])
+            else:
+                price = 0.5  # Default midpoint
+            
+            # Calculate size based on USDC amount and price
+            size = amount_usdc / price
+            
+            # Create market order
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=price,
+                size=size,
+                side=BUY if is_buy else SELL
+            )
+            
+            # Build and sign the order
+            signed_order = self._clob_client.create_order(order_args)
+            
+            # Submit order as FOK (Fill-Or-Kill) for market execution
+            response = self._clob_client.post_order(signed_order, OrderType.FOK)
+            
+            if response and response.get('success'):
+                logger.info(f"[LIVE] Order executed successfully: {response}")
+                return {
+                    "success": True,
+                    "order_id": response.get('orderID', ''),
+                    "status": "matched",
+                    "executed_price": price,
+                    "tx_hash": response.get('transactionsHashes', [None])[0],
+                    "simulated": False
+                }
+            else:
+                error_msg = response.get('errorMsg', 'Unknown error') if response else 'No response'
+                logger.error(f"[LIVE] Order failed: {error_msg}")
+                return {
+                    "success": False,
+                    "order_id": None,
+                    "status": "failed",
+                    "executed_price": 0,
+                    "tx_hash": None,
+                    "simulated": False,
+                    "error_message": error_msg
+                }
+                
+        except Exception as e:
+            logger.error(f"[LIVE] Order execution error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "order_id": None,
+                "status": "error",
+                "executed_price": 0,
+                "tx_hash": None,
+                "simulated": False,
+                "error_message": str(e)
+            }
     
     async def get_order_book(self, token_id: str) -> Dict:
         """Get current order book for a token"""
@@ -163,7 +247,7 @@ class SimulatedPolymarketService:
         
         for asset in assets:
             markets.append(CryptoMarket(
-                condition_id=f"sim_cond_{asset.lower()}",
+                condition_id=f"sim_cond_{asset.lower()}_{datetime.now().strftime('%H%M')}",
                 question=f"Will {asset} price go up in the next 15 minutes?",
                 yes_token_id=f"sim_yes_{asset.lower()}",
                 no_token_id=f"sim_no_{asset.lower()}",
@@ -177,9 +261,12 @@ class SimulatedPolymarketService:
         return markets
     
     async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
+        # Regenerate markets each call to simulate new market periods
+        self._markets = self._generate_fake_markets()
         return self._markets
     
     async def get_market_for_asset(self, asset: str) -> Optional[CryptoMarket]:
+        await self.fetch_15min_crypto_markets()
         for market in self._markets:
             if market.asset == asset:
                 return market
@@ -194,12 +281,13 @@ class SimulatedPolymarketService:
         """Simulate order placement"""
         self._trade_counter += 1
         
-        # Simulate random success (90% success rate)
-        import random
-        success = random.random() < 0.9
+        # Simulate random success (95% success rate)
+        success = random.random() < 0.95
         
         # Simulate price slightly different from midpoint
         executed_price = 0.5 + random.uniform(-0.05, 0.05)
+        
+        logger.info(f"[DRY-RUN] Simulated {'BUY' if is_buy else 'SELL'} order: {amount_usdc} USDC")
         
         return {
             "success": success,
