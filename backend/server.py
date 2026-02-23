@@ -17,6 +17,7 @@ import asyncio
 from models import Trade, BotConfig, SentimentData, BotStats, TelegramConfig
 from trading_bot import ActiveBot
 from cfgi_service import CFGIService, SimulatedCFGIService
+from telegram_service import TelegramService
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,6 +26,9 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Bot password
+BOT_PASSWORD = os.environ.get('BOT_PASSWORD', '62411')
 
 # Create the main app
 app = FastAPI(
