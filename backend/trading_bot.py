@@ -263,13 +263,25 @@ class ActiveBot:
         
         logger.info(f"[{trade.asset}] Trade resolved: {trade.status} P&L: ${trade.pnl:.2f}")
         
-        # Send Telegram notification
+        # Get updated stats for summary
+        stats = await self.get_stats()
+        
+        # Send Telegram notification with full result summary
         if self.config.telegram_enabled and self.config.telegram_chat_id:
-            await self.telegram_service.send_win_loss_alert(
+            await self.telegram_service.send_trade_result(
                 chat_id=self.config.telegram_chat_id,
                 asset=trade.asset,
                 direction=trade.direction,
+                amount=trade.amount_usdc,
+                entry_price=trade.entry_price,
+                exit_price=trade.exit_price,
                 pnl=trade.pnl,
+                is_win=trade.status == "WON",
+                cfgi_score=trade.cfgi_score,
+                total_pnl=stats['total_pnl'],
+                win_rate=stats['win_rate'],
+                total_trades=stats['total_trades']
+            )
                 is_win=trade.status == "WON"
             )
     
