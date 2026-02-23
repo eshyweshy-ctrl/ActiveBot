@@ -453,27 +453,6 @@ class PolymarketService:
                         result["positions_value"] = float(data[0].get("value", 0))
             except Exception as e:
                 logger.warning(f"Could not fetch Polymarket positions: {e}")
-                            payload = {
-                                "jsonrpc": "2.0",
-                                "method": "eth_call",
-                                "params": [{"to": usdc_contract, "data": call_data}, "latest"],
-                                "id": 1
-                            }
-                            
-                            response = await self.client.post(rpc_url, json=payload, timeout=5)
-                            if response.status_code == 200:
-                                data = response.json()
-                                if "result" in data and data["result"] not in ["0x", "0x0", ""]:
-                                    balance_wei = int(data["result"], 16)
-                                    polymarket_usdc += balance_wei / (10 ** decimals)
-                        
-                        if polymarket_usdc > 0:
-                            result["polymarket_balance"] = polymarket_usdc
-                            break
-                    except:
-                        continue
-            except Exception as e:
-                logger.warning(f"Could not fetch Polymarket USDC balance: {e}")
             
             # Get main wallet USDC balance (on-chain wallet balance)
             try:
