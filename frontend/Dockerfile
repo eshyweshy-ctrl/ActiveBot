@@ -1,12 +1,12 @@
 # ACTIVEBOT - Frontend Dockerfile
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 # Copy package files
 COPY package.json ./
 
-# Install dependencies with npm
+# Install dependencies
 RUN npm install --legacy-peer-deps
 
 # Copy source code
