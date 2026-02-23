@@ -166,8 +166,155 @@ const Dashboard = ({
               Start Bot
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTestTradeModal(true)}
+            data-testid="test-trade-btn"
+            className="font-mono uppercase tracking-wider border-accent text-accent hover:bg-accent/10"
+          >
+            <FlaskConical className="w-4 h-4 mr-2" />
+            Test Trade
+          </Button>
         </div>
       </div>
+
+      {/* Test Trade Modal */}
+      {showTestTradeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md bg-card border-border">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="text-lg font-mono uppercase tracking-wider flex items-center gap-2">
+                <FlaskConical className="w-5 h-5 text-accent" />
+                Test Trade
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Place a test trade to verify Polymarket integration works correctly.
+                This will place a REAL trade with real funds.
+              </p>
+              
+              {/* Asset Selection */}
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground mb-2 block">Asset</label>
+                <div className="flex gap-2">
+                  {["BTC", "ETH", "SOL"].map((asset) => (
+                    <button
+                      key={asset}
+                      onClick={() => setTestTradeAsset(asset)}
+                      className={`px-4 py-2 rounded-sm font-mono text-sm transition-colors ${
+                        testTradeAsset === asset
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted hover:bg-muted/80"
+                      }`}
+                    >
+                      {asset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Direction Selection */}
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground mb-2 block">Direction</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setTestTradeDirection("UP")}
+                    className={`flex-1 px-4 py-2 rounded-sm font-mono text-sm transition-colors flex items-center justify-center gap-2 ${
+                      testTradeDirection === "UP"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted hover:bg-muted/80"
+                    }`}
+                  >
+                    <TrendingUp className="w-4 h-4" /> UP
+                  </button>
+                  <button
+                    onClick={() => setTestTradeDirection("DOWN")}
+                    className={`flex-1 px-4 py-2 rounded-sm font-mono text-sm transition-colors flex items-center justify-center gap-2 ${
+                      testTradeDirection === "DOWN"
+                        ? "bg-destructive text-destructive-foreground"
+                        : "bg-muted hover:bg-muted/80"
+                    }`}
+                  >
+                    <TrendingDown className="w-4 h-4" /> DOWN
+                  </button>
+                </div>
+              </div>
+              
+              {/* Amount */}
+              <div>
+                <label className="text-xs font-mono uppercase text-muted-foreground mb-2 block">Amount (USDC)</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value={testTradeAmount}
+                  onChange={(e) => setTestTradeAmount(parseFloat(e.target.value) || 1)}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-sm font-mono"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Recommended: $1 for testing</p>
+              </div>
+              
+              {/* Result Display */}
+              {testTradeResult && (
+                <div className={`p-3 rounded-sm border ${testTradeResult.success ? 'border-primary bg-primary/10' : 'border-destructive bg-destructive/10'}`}>
+                  <p className={`font-mono text-sm ${testTradeResult.success ? 'text-primary' : 'text-destructive'}`}>
+                    {testTradeResult.success ? '✓ Trade Successful!' : '✗ Trade Failed'}
+                  </p>
+                  {testTradeResult.market_slug && (
+                    <p className="text-xs text-muted-foreground mt-1">Market: {testTradeResult.market_slug}</p>
+                  )}
+                  {testTradeResult.order_result?.tx_hash && (
+                    <p className="text-xs text-muted-foreground">TX: {testTradeResult.order_result.tx_hash}</p>
+                  )}
+                  {testTradeResult.error && (
+                    <p className="text-xs text-destructive mt-1">{testTradeResult.error}</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Buttons */}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowTestTradeModal(false);
+                    setTestTradeResult(null);
+                  }}
+                  className="flex-1 font-mono uppercase"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={executeTestTrade}
+                  disabled={testTradeLoading || (walletInfo?.polymarket_balance || 0) < testTradeAmount}
+                  className="flex-1 font-mono uppercase bg-accent text-accent-foreground hover:bg-accent/90"
+                >
+                  {testTradeLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Placing...
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical className="w-4 h-4 mr-2" />
+                      Execute Trade
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              {(walletInfo?.polymarket_balance || 0) < testTradeAmount && (
+                <p className="text-xs text-destructive text-center">
+                  Insufficient Polymarket balance. Deposit USDC to Polymarket first.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* System Status Bar */}
       <Card className="bg-card border-border rounded-sm shadow-none">
