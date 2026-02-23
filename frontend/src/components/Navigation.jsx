@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
-import { Activity, History, Settings, Bot } from "lucide-react";
+import { Activity, History, Settings, Bot, LogOut } from "lucide-react";
 
-const Navigation = ({ isRunning }) => {
+const Navigation = ({ isRunning, onLogout }) => {
   const location = useLocation();
 
   const navItems = [
@@ -59,6 +59,14 @@ const Navigation = ({ isRunning }) => {
                 </Link>
               );
             })}
+            <button
+              onClick={onLogout}
+              data-testid="logout-btn"
+              className="flex items-center gap-2 px-4 py-2 rounded-sm font-mono text-sm uppercase tracking-wider text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 ml-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden md:inline">Logout</span>
+            </button>
           </nav>
         </div>
       </div>
