@@ -96,10 +96,13 @@ class PolymarketService:
             from py_clob_client.client import ClobClient
             
             # Initialize CLOB client with private key
+            # Use signature_type=2 for Polymarket proxy wallets (Poly Gnosis Safe)
             self._clob_client = ClobClient(
                 self.CLOB_HOST,
                 key=self.private_key,
-                chain_id=self.CHAIN_ID
+                chain_id=self.CHAIN_ID,
+                signature_type=2,  # POLY_GNOSIS_SAFE for proxy wallet trading
+                funder=self.proxy_address if self.proxy_address else None
             )
             
             # Derive API credentials from private key (most reliable method)
@@ -108,6 +111,9 @@ class PolymarketService:
             self._clob_client.set_api_creds(api_creds)
             
             logger.info(f"API Key derived: {api_creds.api_key}")
+            logger.info(f"Using signature_type=2 (Poly Gnosis Safe)")
+            if self.proxy_address:
+                logger.info(f"Funder (proxy): {self.proxy_address}")
             
             self._initialized = True
             logger.info("Polymarket CLOB client initialized successfully")
