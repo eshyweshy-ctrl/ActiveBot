@@ -93,15 +93,16 @@ class ActiveBot:
         logger.info("ACTIVEBOT stopped")
     
     async def _run_loop(self):
-        """Main trading loop - runs every 60 seconds"""
+        """Main trading loop - runs every 15 minutes for 15-min markets"""
         while self.is_running:
             try:
                 await self._execute_cycle()
             except Exception as e:
                 logger.error(f"Error in trading cycle: {e}", exc_info=True)
             
-            # Wait 60 seconds before next cycle
-            await asyncio.sleep(60)
+            # Wait 15 minutes (900 seconds) before next cycle - matches 15-min market timeframe
+            logger.info("Next cycle in 15 minutes...")
+            await asyncio.sleep(900)
     
     async def _execute_cycle(self):
         """Execute one trading cycle"""
