@@ -16,7 +16,7 @@ import asyncio
 
 from models import Trade, BotConfig, SentimentData, BotStats, TelegramConfig
 from trading_bot import ActiveBot
-from cfgi_service import SimulatedCFGIService
+from cfgi_service import CFGIService, SimulatedCFGIService
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
