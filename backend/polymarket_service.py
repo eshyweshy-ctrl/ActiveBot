@@ -413,34 +413,41 @@ class PolymarketService:
                 logger.warning(f"Could not fetch Polymarket positions: {e}")
             
             # Get USDC balance from Polygon (on-chain wallet balance)
+            # Check both USDC contracts - PoS and Bridged (USDC.e)
             try:
-                # Use multiple RPC endpoints for reliability
                 rpc_urls = [
-                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
                     "https://polygon-bor-rpc.publicnode.com",
-                    "https://polygon.llamarpc.com"
+                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
                 ]
-                usdc_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
+                usdc_contracts = [
+                    ("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", 6),  # USDC (PoS)
+                    ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),  # USDC.e (Bridged) - Native USDC
+                ]
                 
-                # balanceOf(address) selector: 0x70a08231
-                call_data = f"0x70a08231000000000000000000000000{wallet_address[2:].lower()}"
-                
+                total_usdc = 0.0
                 for rpc_url in rpc_urls:
                     try:
-                        payload = {
-                            "jsonrpc": "2.0",
-                            "method": "eth_call",
-                            "params": [{"to": usdc_contract, "data": call_data}, "latest"],
-                            "id": 1
-                        }
+                        for usdc_contract, decimals in usdc_contracts:
+                            # balanceOf(address) selector: 0x70a08231
+                            call_data = f"0x70a08231000000000000000000000000{wallet_address[2:].lower()}"
+                            
+                            payload = {
+                                "jsonrpc": "2.0",
+                                "method": "eth_call",
+                                "params": [{"to": usdc_contract, "data": call_data}, "latest"],
+                                "id": 1
+                            }
+                            
+                            response = await self.client.post(rpc_url, json=payload, timeout=5)
+                            if response.status_code == 200:
+                                data = response.json()
+                                if "result" in data and data["result"] not in ["0x", "0x0", ""]:
+                                    balance_wei = int(data["result"], 16)
+                                    total_usdc += balance_wei / (10 ** decimals)
                         
-                        response = await self.client.post(rpc_url, json=payload, timeout=5)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if "result" in data and data["result"] not in ["0x", "0x0"]:
-                                balance_wei = int(data["result"], 16)
-                                result["usdc_balance"] = balance_wei / 1e6  # USDC has 6 decimals
-                                break
+                        if total_usdc > 0:
+                            result["usdc_balance"] = total_usdc
+                            break
                     except:
                         continue
             except Exception as e:
