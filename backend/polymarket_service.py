@@ -95,15 +95,20 @@ class PolymarketService:
         try:
             from py_clob_client.client import ClobClient
             
-            # Initialize CLOB client with private key
-            # Use signature_type=2 (POLY_GNOSIS_SAFE) for Polymarket proxy wallets
-            # This works for both balance checking AND order signing
+            # CRITICAL: Must use signature_type=2 (POLY_GNOSIS_SAFE) with funder set to proxy address
+            # The proxy address is the Gnosis Safe wallet that holds the user's Polymarket funds
+            if not self.proxy_address:
+                logger.error("POLYMARKET_PROXY_ADDRESS not set! This is required for trading.")
+                raise ValueError("POLYMARKET_PROXY_ADDRESS environment variable must be set")
+            
+            logger.info(f"Initializing CLOB client with proxy wallet: {self.proxy_address}")
+            
             self._clob_client = ClobClient(
                 self.CLOB_HOST,
                 key=self.private_key,
                 chain_id=self.CHAIN_ID,
                 signature_type=2,  # POLY_GNOSIS_SAFE - required for proxy wallet trading
-                funder=self.proxy_address if self.proxy_address else None
+                funder=self.proxy_address  # Must be set to the proxy wallet address
             )
             
             # Derive API credentials from private key
@@ -113,8 +118,7 @@ class PolymarketService:
             
             logger.info(f"API Key derived: {api_creds.api_key}")
             logger.info(f"Using signature_type=2 (POLY_GNOSIS_SAFE)")
-            if self.proxy_address:
-                logger.info(f"Funder (proxy): {self.proxy_address}")
+            logger.info(f"Funder (proxy): {self.proxy_address}")
             
             self._initialized = True
             logger.info("Polymarket CLOB client initialized successfully")
