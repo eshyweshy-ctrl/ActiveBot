@@ -275,10 +275,15 @@ class PolymarketService:
             # Round price to 2 decimals and ensure valid range
             price = round(max(0.01, min(0.99, price)), 2)
             
-            # Calculate size: amount / price, rounded to 2 decimals
-            size = round(float(amount_usdc) / price, 2)
-            if size < 0.1:
-                size = 0.1
+            # Calculate size: amount / price, ensure minimum $1 order
+            # Polymarket requires minimum $1 orders
+            raw_size = float(amount_usdc) / price
+            size = round(raw_size, 2)
+            
+            # Ensure size * price >= $1 (minimum order)
+            while size * price < 1.0:
+                size += 0.01
+            size = round(size, 2)
             
             side = BUY if is_buy else SELL
             
