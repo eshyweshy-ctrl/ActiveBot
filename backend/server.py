@@ -1,15 +1,22 @@
-from fastapi import FastAPI, APIRouter
+"""
+ACTIVEBOT - FastAPI Backend Server
+Automated trading bot dashboard API
+"""
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
+from pydantic import BaseModel, Field
+from typing import List, Optional
 from datetime import datetime, timezone
+import asyncio
 
+from models import Trade, BotConfig, SentimentData, BotStats, TelegramConfig
+from trading_bot import ActiveBot
+from cfgi_service import SimulatedCFGIService
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,63 +26,15 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
-app = FastAPI()
+# Create the main app
+app = FastAPI(
+    title="ACTIVEBOT API",
+    description="Automated crypto trading bot powered by CFGI sentiment analysis",
+    version="1.0.0"
+)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
-
-
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Configure logging
 logging.basicConfig(
@@ -84,6 +43,388 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global bot instance
+trading_bot: Optional[ActiveBot] = None
+
+# Request/Response Models
+class ConfigUpdate(BaseModel):
+    trade_size_usdc: Optional[float] = Field(None, ge=1.0, le=1000.0)
+    assets_enabled: Optional[List[str]] = None
+    dry_run_mode: Optional[bool] = None
+    telegram_enabled: Optional[bool] = None
+    telegram_chat_id: Optional[str] = None
+
+class TelegramTestRequest(BaseModel):
+    chat_id: str
+
+class SimulateSentimentRequest(BaseModel):
+    score: int = Field(..., ge=0, le=100)
+    asset: str = "BTC"
+
+class TradeResponse(BaseModel):
+    id: str
+    asset: str
+    direction: str
+    market_id: str
+    amount_usdc: float
+    entry_price: float
+    exit_price: Optional[float] = None
+    pnl: Optional[float] = None
+    status: str
+    cfgi_score: int
+    timestamp: str
+    closed_at: Optional[str] = None
+
+# Health & Root
+@api_router.get("/")
+async def root():
+    return {"message": "ACTIVEBOT API", "status": "online"}
+
+@api_router.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "bot_running": trading_bot.is_running if trading_bot else False
+    }
+
+# Bot Control
+@api_router.post("/bot/start")
+async def start_bot():
+    global trading_bot
+    
+    if trading_bot is None:
+        trading_bot = ActiveBot(db, dry_run=True)
+    
+    if trading_bot.is_running:
+        return {"status": "already_running", "message": "Bot is already running"}
+    
+    await trading_bot.start()
+    return {"status": "started", "message": "Bot started successfully"}
+
+@api_router.post("/bot/stop")
+async def stop_bot():
+    global trading_bot
+    
+    if trading_bot is None or not trading_bot.is_running:
+        return {"status": "not_running", "message": "Bot is not running"}
+    
+    await trading_bot.stop()
+    return {"status": "stopped", "message": "Bot stopped successfully"}
+
+@api_router.get("/bot/status")
+async def get_bot_status():
+    global trading_bot
+    
+    is_running = trading_bot.is_running if trading_bot else False
+    config = None
+    
+    if trading_bot and trading_bot.config:
+        config = {
+            "trade_size_usdc": trading_bot.config.trade_size_usdc,
+            "assets_enabled": trading_bot.config.assets_enabled,
+            "dry_run_mode": trading_bot.config.dry_run_mode,
+            "telegram_enabled": trading_bot.config.telegram_enabled
+        }
+    else:
+        # Load from DB
+        config_doc = await db.bot_config.find_one({"id": "main_config"}, {"_id": 0})
+        if config_doc:
+            config = {
+                "trade_size_usdc": config_doc.get("trade_size_usdc", 10.0),
+                "assets_enabled": config_doc.get("assets_enabled", ["BTC", "ETH", "SOL"]),
+                "dry_run_mode": config_doc.get("dry_run_mode", True),
+                "telegram_enabled": config_doc.get("telegram_enabled", False)
+            }
+        else:
+            config = {
+                "trade_size_usdc": 10.0,
+                "assets_enabled": ["BTC", "ETH", "SOL"],
+                "dry_run_mode": True,
+                "telegram_enabled": False
+            }
+    
+    return {
+        "is_running": is_running,
+        "config": config
+    }
+
+# Configuration
+@api_router.get("/config")
+async def get_config():
+    config_doc = await db.bot_config.find_one({"id": "main_config"}, {"_id": 0})
+    if config_doc:
+        return config_doc
+    return BotConfig().model_dump()
+
+@api_router.put("/config")
+async def update_config(update: ConfigUpdate):
+    global trading_bot
+    
+    config_doc = await db.bot_config.find_one({"id": "main_config"}, {"_id": 0})
+    if config_doc:
+        config = BotConfig(**config_doc)
+    else:
+        config = BotConfig()
+    
+    # Update fields
+    if update.trade_size_usdc is not None:
+        config.trade_size_usdc = update.trade_size_usdc
+    if update.assets_enabled is not None:
+        config.assets_enabled = update.assets_enabled
+    if update.dry_run_mode is not None:
+        config.dry_run_mode = update.dry_run_mode
+    if update.telegram_enabled is not None:
+        config.telegram_enabled = update.telegram_enabled
+    if update.telegram_chat_id is not None:
+        config.telegram_chat_id = update.telegram_chat_id
+    
+    config.last_updated = datetime.now(timezone.utc)
+    
+    # Save to DB
+    doc = config.model_dump()
+    doc['last_updated'] = doc['last_updated'].isoformat()
+    await db.bot_config.update_one(
+        {"id": "main_config"},
+        {"$set": doc},
+        upsert=True
+    )
+    
+    # Update bot instance if running
+    if trading_bot:
+        trading_bot.config = config
+    
+    return {"status": "updated", "config": doc}
+
+# Sentiment
+@api_router.get("/sentiment/current")
+async def get_current_sentiment():
+    """Get current sentiment for all assets"""
+    global trading_bot
+    
+    if trading_bot and trading_bot.cfgi_service:
+        sentiments = {}
+        for asset in ["BTC", "ETH", "SOL"]:
+            sentiment = await trading_bot.cfgi_service.get_sentiment(asset)
+            sentiments[asset] = {
+                "score": sentiment['score'],
+                "signal": sentiment['signal'],
+                "timestamp": sentiment['timestamp'].isoformat()
+            }
+        return sentiments
+    
+    # Fallback - use simulated service
+    sim_service = SimulatedCFGIService()
+    sentiments = {}
+    for asset in ["BTC", "ETH", "SOL"]:
+        sentiment = await sim_service.get_sentiment(asset)
+        sentiments[asset] = {
+            "score": sentiment['score'],
+            "signal": sentiment['signal'],
+            "timestamp": sentiment['timestamp'].isoformat()
+        }
+    return sentiments
+
+@api_router.get("/sentiment/history")
+async def get_sentiment_history(asset: Optional[str] = None, limit: int = 100):
+    """Get sentiment history"""
+    query = {}
+    if asset:
+        query["asset"] = asset
+    
+    history = await db.sentiment_history.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+    return history
+
+@api_router.post("/sentiment/simulate")
+async def simulate_sentiment(request: SimulateSentimentRequest):
+    """Set simulated sentiment score (for testing)"""
+    global trading_bot
+    
+    if trading_bot and isinstance(trading_bot.cfgi_service, SimulatedCFGIService):
+        trading_bot.cfgi_service.set_simulated_score(request.score)
+        sentiment = await trading_bot.cfgi_service.get_sentiment(request.asset)
+        return {
+            "status": "simulated",
+            "score": sentiment['score'],
+            "signal": sentiment['signal']
+        }
+    
+    return {"status": "not_available", "message": "Simulation only available in dry-run mode"}
+
+# Trades
+@api_router.get("/trades", response_model=List[TradeResponse])
+async def get_trades(
+    asset: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Get trade history"""
+    query = {}
+    if asset:
+        query["asset"] = asset
+    if status:
+        query["status"] = status
+    
+    trades = await db.trades.find(query, {"_id": 0}).sort("timestamp", -1).skip(offset).limit(limit).to_list(limit)
+    return trades
+
+@api_router.get("/trades/{trade_id}")
+async def get_trade(trade_id: str):
+    """Get specific trade details"""
+    trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    return trade
+
+# Statistics
+@api_router.get("/stats")
+async def get_stats():
+    """Get bot statistics"""
+    global trading_bot
+    
+    if trading_bot:
+        return await trading_bot.get_stats()
+    
+    # Calculate from DB
+    trades = await db.trades.find({}, {"_id": 0}).to_list(1000)
+    
+    total_trades = len(trades)
+    winning_trades = len([t for t in trades if t.get('status') == 'WON'])
+    losing_trades = len([t for t in trades if t.get('status') == 'LOST'])
+    open_trades = len([t for t in trades if t.get('status') == 'OPEN'])
+    
+    pnls = [t.get('pnl', 0) or 0 for t in trades if t.get('pnl') is not None]
+    total_pnl = sum(pnls)
+    
+    win_rate = (winning_trades / (winning_trades + losing_trades) * 100) if (winning_trades + losing_trades) > 0 else 0
+    
+    return {
+        "total_trades": total_trades,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "open_trades": open_trades,
+        "total_pnl": round(total_pnl, 2),
+        "win_rate": round(win_rate, 1),
+        "best_trade": round(max(pnls) if pnls else 0, 2),
+        "worst_trade": round(min(pnls) if pnls else 0, 2)
+    }
+
+@api_router.get("/stats/pnl-history")
+async def get_pnl_history(days: int = 7):
+    """Get P&L history for charts"""
+    trades = await db.trades.find(
+        {"status": {"$in": ["WON", "LOST"]}},
+        {"_id": 0, "timestamp": 1, "pnl": 1, "asset": 1}
+    ).sort("timestamp", 1).to_list(1000)
+    
+    # Group by day and calculate cumulative P&L
+    pnl_history = []
+    cumulative_pnl = 0
+    
+    for trade in trades:
+        pnl = trade.get('pnl', 0) or 0
+        cumulative_pnl += pnl
+        pnl_history.append({
+            "timestamp": trade['timestamp'],
+            "pnl": pnl,
+            "cumulative_pnl": round(cumulative_pnl, 2),
+            "asset": trade.get('asset', 'BTC')
+        })
+    
+    return pnl_history
+
+# Telegram
+@api_router.post("/telegram/test")
+async def test_telegram(request: TelegramTestRequest):
+    """Test Telegram connection"""
+    global trading_bot
+    
+    if trading_bot:
+        success = await trading_bot.telegram_service.test_connection(request.chat_id)
+    else:
+        from telegram_service import TelegramService
+        service = TelegramService()
+        success = await service.test_connection(request.chat_id)
+        await service.close()
+    
+    if success:
+        return {"status": "success", "message": "Test message sent successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to send test message. Check bot token and chat ID.")
+
+# Markets (from Polymarket)
+@api_router.get("/markets")
+async def get_markets():
+    """Get available 15-min crypto markets"""
+    global trading_bot
+    
+    if trading_bot and trading_bot.polymarket_service:
+        markets = await trading_bot.polymarket_service.fetch_15min_crypto_markets()
+        return [
+            {
+                "condition_id": m.condition_id,
+                "question": m.question,
+                "asset": m.asset,
+                "yes_price": m.yes_price,
+                "no_price": m.no_price,
+                "volume_24h": m.volume_24h,
+                "is_active": m.is_active
+            }
+            for m in markets
+        ]
+    
+    # Return simulated markets
+    from polymarket_service import SimulatedPolymarketService
+    sim = SimulatedPolymarketService()
+    markets = await sim.fetch_15min_crypto_markets()
+    return [
+        {
+            "condition_id": m.condition_id,
+            "question": m.question,
+            "asset": m.asset,
+            "yes_price": m.yes_price,
+            "no_price": m.no_price,
+            "volume_24h": m.volume_24h,
+            "is_active": m.is_active
+        }
+        for m in markets
+    ]
+
+# Include the router
+app.include_router(api_router)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Startup/Shutdown
+@app.on_event("startup")
+async def startup_event():
+    global trading_bot
+    logger.info("ACTIVEBOT API starting up...")
+    
+    # Initialize bot in stopped state
+    trading_bot = ActiveBot(db, dry_run=True)
+    await trading_bot.load_config()
+    
+    # Auto-start if was running before
+    if trading_bot.config and trading_bot.config.is_running:
+        await trading_bot.start()
+        logger.info("Bot auto-started from previous state")
+
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown_event():
+    global trading_bot
+    logger.info("ACTIVEBOT API shutting down...")
+    
+    if trading_bot:
+        await trading_bot.stop()
+        await trading_bot.cleanup()
+    
     client.close()
