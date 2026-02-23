@@ -85,38 +85,35 @@ class CFGIService:
             if response.status_code == 200:
                 html = response.text
                 
-                # Look for the "Now" score in the Historical Values section
-                # Pattern: "Now" followed by sentiment label and score number
-                # Example: "Now\n\nNeutral49" or "Now\nNeutral\n49"
-                
-                # Try multiple patterns
-                patterns = [
-                    # Pattern 1: Look for "Now" section with score
-                    r'Now\s*(?:Extreme Fear|Fear|Neutral|Greed|Extreme Greed)\s*(\d+)',
-                    # Pattern 2: Score in span or div after sentiment
-                    r'(?:Extreme Fear|Fear|Neutral|Greed|Extreme Greed)\s*(\d+)\s*</li>',
-                    # Pattern 3: More flexible
-                    r'Now[^0-9]*(\d{1,3})',
-                    # Pattern 4: Look for "Live" score
-                    r'Live[^0-9]*Score[^0-9]*Now[^0-9]*(?:Neutral|Fear|Greed)[^0-9]*(\d+)',
+                # Primary pattern: Look for value__score class with the actual score number
+                # Example: value__score cfgi-color cfgi-color-bg">37
+                primary_patterns = [
+                    r'value__score[^>]*>(\d+)',
+                    r'cfgi-color-bg">(\d+)',
+                    r'class="[^"]*score[^"]*"[^>]*>(\d+)',
                 ]
                 
-                for pattern in patterns:
+                for pattern in primary_patterns:
+                    match = re.search(pattern, html, re.IGNORECASE)
+                    if match:
+                        score = int(match.group(1))
+                        if 0 <= score <= 100:
+                            logger.info(f"CFGI.io scraped score for {asset}: {score} (1D timeframe)")
+                            return score
+                
+                # Fallback patterns
+                fallback_patterns = [
+                    r'Now\s*(?:Extreme Fear|Fear|Neutral|Greed|Extreme Greed)\s*(\d+)',
+                    r'Now[^0-9]*(\d{1,2})',
+                ]
+                
+                for pattern in fallback_patterns:
                     match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
                     if match:
                         score = int(match.group(1))
                         if 0 <= score <= 100:
-                            logger.info(f"CFGI.io scraped score for {asset}: {score}")
+                            logger.info(f"CFGI.io fallback score for {asset}: {score}")
                             return score
-                
-                # Try to find score in JSON data
-                json_pattern = r'"value"\s*:\s*(\d+)'
-                json_match = re.search(json_pattern, html)
-                if json_match:
-                    score = int(json_match.group(1))
-                    if 0 <= score <= 100:
-                        logger.info(f"CFGI.io JSON score for {asset}: {score}")
-                        return score
                 
                 logger.warning(f"Could not find score on CFGI.io page for {asset}")
                 return None
