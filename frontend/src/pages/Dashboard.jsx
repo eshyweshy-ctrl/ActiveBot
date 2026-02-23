@@ -20,6 +20,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
+  FlaskConical,
 } from "lucide-react";
 import {
   AreaChart,
@@ -31,6 +32,10 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { toast } from "sonner";
+import { useState } from "react";
+import axios from "axios";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const Dashboard = ({
   botStatus,
@@ -44,6 +49,41 @@ const Dashboard = ({
   onStop,
   onRefresh,
 }) => {
+  const [testTradeLoading, setTestTradeLoading] = useState(false);
+  const [showTestTradeModal, setShowTestTradeModal] = useState(false);
+  const [testTradeAsset, setTestTradeAsset] = useState("BTC");
+  const [testTradeDirection, setTestTradeDirection] = useState("UP");
+  const [testTradeAmount, setTestTradeAmount] = useState(1);
+  const [testTradeResult, setTestTradeResult] = useState(null);
+
+  const executeTestTrade = async () => {
+    setTestTradeLoading(true);
+    setTestTradeResult(null);
+    
+    try {
+      const response = await axios.post(`${API_URL}/api/bot/test-trade`, {
+        asset: testTradeAsset,
+        direction: testTradeDirection,
+        amount: testTradeAmount
+      });
+      
+      setTestTradeResult(response.data);
+      
+      if (response.data.success) {
+        toast.success(`Test trade successful! ${testTradeAsset} ${testTradeDirection} $${testTradeAmount}`);
+        onRefresh();
+      } else {
+        toast.error(`Test trade failed: ${response.data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || error.message;
+      toast.error(`Test trade error: ${errorMsg}`);
+      setTestTradeResult({ success: false, error: errorMsg });
+    } finally {
+      setTestTradeLoading(false);
+    }
+  };
+
   const formatPnl = (value) => {
     if (value >= 0) return `+$${value.toFixed(2)}`;
     return `-$${Math.abs(value).toFixed(2)}`;
