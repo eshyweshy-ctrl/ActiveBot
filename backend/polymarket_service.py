@@ -87,10 +87,15 @@ class PolymarketService:
         asset_prefix = self.ASSET_SLUG_MAP.get(asset.upper(), asset.lower())
         return f"{asset_prefix}-updown-15m-{timestamp}"
     
-    async def _init_clob_client(self):
+    async def _init_clob_client(self, force_reinit: bool = False):
         """Initialize the CLOB client for trading"""
-        if self._initialized:
-            return
+        if self._initialized and not force_reinit:
+            # Verify the existing client has correct funder
+            if hasattr(self._clob_client, 'funder') and self._clob_client.funder == self.proxy_address:
+                return
+            else:
+                logger.info("Re-initializing CLOB client due to funder mismatch")
+                self._initialized = False
         
         try:
             from py_clob_client.client import ClobClient
@@ -102,6 +107,7 @@ class PolymarketService:
                 raise ValueError("POLYMARKET_PROXY_ADDRESS environment variable must be set")
             
             logger.info(f"Initializing CLOB client with proxy wallet: {self.proxy_address}")
+            logger.info(f"Private key: {self.private_key[:10]}...{self.private_key[-6:]}")
             
             self._clob_client = ClobClient(
                 self.CLOB_HOST,
@@ -118,7 +124,7 @@ class PolymarketService:
             
             logger.info(f"API Key derived: {api_creds.api_key}")
             logger.info(f"Using signature_type=2 (POLY_GNOSIS_SAFE)")
-            logger.info(f"Funder (proxy): {self.proxy_address}")
+            logger.info(f"Funder set to: {self._clob_client.funder}")
             
             self._initialized = True
             logger.info("Polymarket CLOB client initialized successfully")
