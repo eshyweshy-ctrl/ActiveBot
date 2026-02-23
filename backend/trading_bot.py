@@ -162,11 +162,12 @@ class ActiveBot:
             except Exception as e:
                 logger.error(f"Error processing {asset}: {e}")
     
-    async def _process_asset(self, asset: str):
+    async def _process_asset(self, asset: str, sentiment: dict = None):
         """Process trading decision for a single asset"""
         
-        # 1. Get sentiment
-        sentiment = await self.cfgi_service.get_sentiment(asset)
+        # 1. Get sentiment if not provided
+        if sentiment is None:
+            sentiment = await self.cfgi_service.get_sentiment(asset)
         logger.info(f"[{asset}] CFGI Score: {sentiment['score']}, Signal: {sentiment['signal']}")
         
         # Store sentiment data
