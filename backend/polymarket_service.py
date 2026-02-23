@@ -417,12 +417,35 @@ class PolymarketService:
             return result
         
         try:
-            # Get Polymarket positions value from Data API (using proxy if available)
-            check_address = proxy_address if proxy_address else wallet_address
+            # Get Polymarket CLOB balance using py-clob-client with signature_type=2
+            try:
+                from py_clob_client.client import ClobClient
+                from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+                
+                clob_client = ClobClient(
+                    self.CLOB_HOST,
+                    key=self.private_key,
+                    chain_id=self.CHAIN_ID,
+                    signature_type=2,  # POLY_GNOSIS_SAFE for proxy wallet
+                    funder=proxy_address
+                )
+                
+                api_creds = clob_client.derive_api_key()
+                clob_client.set_api_creds(api_creds)
+                
+                params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=2)
+                balance_info = clob_client.get_balance_allowance(params)
+                clob_balance = int(balance_info.get('balance', 0)) / 1e6
+                result["polymarket_balance"] = clob_balance
+                logger.info(f"CLOB balance: ${clob_balance:.2f}")
+            except Exception as e:
+                logger.warning(f"Could not fetch CLOB balance: {e}")
+            
+            # Get Polymarket positions value from Data API
             try:
                 response = await self.client.get(
                     f"https://data-api.polymarket.com/value",
-                    params={"user": check_address}
+                    params={"user": proxy_address}
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -430,24 +453,6 @@ class PolymarketService:
                         result["positions_value"] = float(data[0].get("value", 0))
             except Exception as e:
                 logger.warning(f"Could not fetch Polymarket positions: {e}")
-            
-            # Get Polymarket USDC balance from proxy wallet (this is "available to trade")
-            # Check both USDC contracts on proxy wallet
-            try:
-                rpc_urls = [
-                    "https://polygon-bor-rpc.publicnode.com",
-                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
-                ]
-                usdc_contracts = [
-                    ("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", 6),  # USDC (PoS)
-                    ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),  # USDC.e (Bridged)
-                ]
-                
-                polymarket_usdc = 0.0
-                for rpc_url in rpc_urls:
-                    try:
-                        for usdc_contract, decimals in usdc_contracts:
-                            call_data = f"0x70a08231000000000000000000000000{check_address[2:].lower()}"
                             payload = {
                                 "jsonrpc": "2.0",
                                 "method": "eth_call",
