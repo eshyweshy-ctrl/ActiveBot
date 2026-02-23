@@ -238,16 +238,20 @@ const Dashboard = ({
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground font-mono uppercase">USDC Balance</p>
+                    <p className="text-xs text-muted-foreground font-mono uppercase">Wallet USDC</p>
                     <p className="font-mono text-lg font-bold text-primary">${walletInfo.usdc_balance?.toFixed(2) || "0.00"}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground font-mono uppercase">MATIC</p>
-                    <p className="font-mono text-lg">{walletInfo.matic_balance?.toFixed(4) || "0.0000"}</p>
+                    <p className="text-xs text-muted-foreground font-mono uppercase">Polymarket</p>
+                    <p className="font-mono text-lg font-bold text-accent">${walletInfo.polymarket_balance?.toFixed(2) || "0.00"}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground font-mono uppercase">Positions Value</p>
-                    <p className="font-mono text-lg">${walletInfo.positions_value?.toFixed(2) || "0.00"}</p>
+                    <p className="text-xs text-muted-foreground font-mono uppercase">MATIC</p>
+                    <p className="font-mono text-sm">{walletInfo.matic_balance?.toFixed(4) || "0.0000"}</p>
+                  </div>
+                  <div className="text-right border-l border-border pl-4">
+                    <p className="text-xs text-muted-foreground font-mono uppercase">Total</p>
+                    <p className="font-mono text-lg font-bold">${walletInfo.total_value?.toFixed(2) || "0.00"}</p>
                   </div>
                 </div>
               </div>
