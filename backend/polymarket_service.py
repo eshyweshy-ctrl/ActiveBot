@@ -245,7 +245,7 @@ class PolymarketService:
         is_buy: bool = True
     ) -> Dict:
         """
-        Place a market order on Polymarket
+        Place an order on Polymarket
         
         Uses py-clob-client for real order execution.
         For 15-min markets:
@@ -257,41 +257,54 @@ class PolymarketService:
         try:
             await self._init_clob_client()
             
-            from py_clob_client.clob_types import MarketOrderArgs, OrderType
+            from py_clob_client.clob_types import OrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY, SELL
             
-            # Round amount to 2 decimals (Polymarket requirement)
-            amount = round(float(amount_usdc), 2)
+            # Get current price from orderbook
+            orderbook = await self.get_order_book(token_id)
             
-            # Ensure minimum amount
-            if amount < 1.0:
-                amount = 1.0
+            # For market buy, use best ask price; for sell, use best bid
+            if is_buy and orderbook.get('asks'):
+                price = float(orderbook['asks'][0]['price'])
+            elif not is_buy and orderbook.get('bids'):
+                price = float(orderbook['bids'][0]['price'])
+            else:
+                price = 0.5  # Default midpoint
+            
+            # Round price to 2 decimals and ensure valid range
+            price = round(max(0.01, min(0.99, price)), 2)
+            
+            # Calculate size: amount / price, rounded to 2 decimals
+            size = round(float(amount_usdc) / price, 2)
+            if size < 0.1:
+                size = 0.1
             
             side = BUY if is_buy else SELL
             
-            logger.info(f"[LIVE] Market order: amount={amount} USDC, side={side}")
+            logger.info(f"[LIVE] Order: price={price}, size={size}, side={side}")
             
-            # Create market order using MarketOrderArgs
-            market_order_args = MarketOrderArgs(
+            # Create limit order using OrderArgs
+            order_args = OrderArgs(
                 token_id=token_id,
-                amount=amount,
+                price=price,
+                size=size,
                 side=side
             )
             
-            # Build and sign the market order
-            signed_order = self._clob_client.create_market_order(market_order_args)
+            # Build and sign the order
+            signed_order = self._clob_client.create_order(order_args)
             
-            # Submit order as FOK (Fill-Or-Kill) for market execution
-            response = self._clob_client.post_order(signed_order, OrderType.FOK)
+            # Submit order as GTC (Good Till Cancelled)
+            response = self._clob_client.post_order(signed_order, OrderType.GTC)
             
             if response and response.get('success'):
                 logger.info(f"[LIVE] Order executed successfully: {response}")
                 return {
                     "success": True,
                     "order_id": response.get('orderID', ''),
-                    "status": "matched",
-                    "executed_price": response.get('executedPrice', 0),
-                    "tx_hash": response.get('transactionsHashes', [None])[0],
+                    "status": "placed",
+                    "executed_price": price,
+                    "tx_hash": response.get('transactionsHashes', [None])[0] if response.get('transactionsHashes') else None,
                     "simulated": False
                 }
             else:
