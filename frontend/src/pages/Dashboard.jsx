@@ -138,7 +138,7 @@ const Dashboard = ({
           </CardTitle>
         </CardHeader>
         <CardContent className="p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-muted-foreground" />
@@ -187,7 +187,72 @@ const Dashboard = ({
                 </Badge>
               </div>
             </div>
+            {/* Wallet Status */}
+            <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono text-sm">Wallet</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {walletInfo?.address ? (
+                  <Wifi className="w-4 h-4 text-primary" />
+                ) : (
+                  <WifiOff className="w-4 h-4 text-destructive" />
+                )}
+                <Badge className={`${walletInfo?.address ? "badge-success" : "badge-error"} rounded-none px-2 py-0.5 text-xs font-mono uppercase`}>
+                  {walletInfo?.address ? "CONNECTED" : "NOT SET"}
+                </Badge>
+              </div>
+            </div>
           </div>
+          
+          {/* Wallet Details Row */}
+          {walletInfo?.address && (
+            <div className="mt-4 p-3 bg-muted/50 rounded-sm border border-border">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Wallet className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground font-mono uppercase">Connected Wallet</p>
+                    <div className="flex items-center gap-2">
+                      <code className="font-mono text-sm text-foreground">{walletInfo.address_short}</code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(walletInfo.address);
+                          toast.success("Address copied!");
+                        }}
+                        className="p-1 hover:bg-muted rounded"
+                      >
+                        <Copy className="w-3 h-3 text-muted-foreground" />
+                      </button>
+                      <a
+                        href={`https://polygonscan.com/address/${walletInfo.address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 hover:bg-muted rounded"
+                      >
+                        <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground font-mono uppercase">USDC Balance</p>
+                    <p className="font-mono text-lg font-bold text-primary">${walletInfo.usdc_balance?.toFixed(2) || "0.00"}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground font-mono uppercase">MATIC</p>
+                    <p className="font-mono text-lg">{walletInfo.matic_balance?.toFixed(4) || "0.0000"}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground font-mono uppercase">Positions Value</p>
+                    <p className="font-mono text-lg">${walletInfo.positions_value?.toFixed(2) || "0.00"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
