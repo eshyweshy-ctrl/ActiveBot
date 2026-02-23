@@ -1,10 +1,16 @@
 """
 Polymarket Trading Service
-Handles market discovery and order execution for 15-minute crypto direction markets
+Handles market discovery and order execution for 15-minute crypto direction markets.
+
+Market Discovery Logic:
+- 15-minute markets use dynamic slugs: {asset}-updown-15m-{unix_timestamp}
+- The timestamp represents the START of the 15-minute trading window
+- Markets are discovered via: https://gamma-api.polymarket.com/events?slug={slug}
 """
 import os
 import logging
 import httpx
+import json
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -17,26 +23,61 @@ class CryptoMarket:
     """Represents a Polymarket 15-min crypto direction market"""
     condition_id: str
     question: str
-    yes_token_id: str
-    no_token_id: str
-    yes_price: float
-    no_price: float
+    yes_token_id: str  # "Up" outcome
+    no_token_id: str   # "Down" outcome
+    yes_price: float   # Price for "Up" 
+    no_price: float    # Price for "Down"
     volume_24h: float
     is_active: bool
     asset: str  # BTC, ETH, SOL
+    slug: str
+    end_time: Optional[datetime] = None
+    accepting_orders: bool = True
+
 
 class PolymarketService:
-    """Service for interacting with Polymarket - LIVE TRADING"""
+    """Service for interacting with Polymarket - LIVE TRADING
+    
+    Uses the Gamma API to discover 15-minute crypto markets and
+    the CLOB API for order execution.
+    """
     
     GAMMA_HOST = "https://gamma-api.polymarket.com"
     CLOB_HOST = "https://clob.polymarket.com"
     CHAIN_ID = 137  # Polygon mainnet
+    
+    # Asset mappings for slug generation
+    ASSET_SLUG_MAP = {
+        "BTC": "btc",
+        "ETH": "eth",
+        "SOL": "sol"
+    }
     
     def __init__(self, private_key: Optional[str] = None):
         self.private_key = private_key or os.environ.get("POLYMARKET_PRIVATE_KEY", "")
         self.client = httpx.AsyncClient(timeout=30.0)
         self._clob_client = None
         self._initialized = False
+    
+    def _get_current_15min_timestamp(self) -> int:
+        """Calculate the Unix timestamp for the current 15-minute window start"""
+        now = datetime.now(timezone.utc)
+        # Round down to nearest 15-minute boundary
+        base_minute = (now.minute // 15) * 15
+        current_window = now.replace(minute=base_minute, second=0, microsecond=0)
+        return int(current_window.timestamp())
+    
+    def _generate_market_slug(self, asset: str, timestamp: Optional[int] = None) -> str:
+        """Generate the market slug for a given asset and timestamp
+        
+        Slug format: {asset}-updown-15m-{unix_timestamp}
+        Example: btc-updown-15m-1771858800
+        """
+        if timestamp is None:
+            timestamp = self._get_current_15min_timestamp()
+        
+        asset_prefix = self.ASSET_SLUG_MAP.get(asset.upper(), asset.lower())
+        return f"{asset_prefix}-updown-15m-{timestamp}"
     
     async def _init_clob_client(self):
         """Initialize the CLOB client for trading"""
@@ -45,7 +86,6 @@ class PolymarketService:
         
         try:
             from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import ApiCreds
             
             # Initialize CLOB client
             self._clob_client = ClobClient(
@@ -67,67 +107,118 @@ class PolymarketService:
             logger.error(f"Failed to initialize CLOB client: {e}")
             raise
     
-    async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
-        """Fetch active 15-minute crypto direction markets"""
+    async def get_market_for_asset(self, asset: str) -> Optional[CryptoMarket]:
+        """Get the current active 15-min market for a specific asset
+        
+        Uses the dynamic slug pattern to find the market for the current
+        15-minute window.
+        """
         try:
-            url = f"{self.GAMMA_HOST}/markets"
-            params = {
-                "active": "true",
-                "closed": "false",
-                "limit": 500
-            }
+            # Generate the expected slug for current 15-min window
+            slug = self._generate_market_slug(asset)
+            logger.info(f"[{asset}] Looking for market with slug: {slug}")
+            
+            # Query the Gamma API for this specific event
+            url = f"{self.GAMMA_HOST}/events"
+            params = {"slug": slug}
             
             response = await self.client.get(url, params=params)
             response.raise_for_status()
             
-            all_markets = response.json()
-            crypto_markets = []
+            events = response.json()
             
-            for market in all_markets:
-                question = market.get("question", "").lower()
+            if not events:
+                logger.warning(f"[{asset}] No market found for slug: {slug}")
+                # Try previous 15-min window as fallback
+                prev_timestamp = self._get_current_15min_timestamp() - 900  # 15 mins ago
+                prev_slug = self._generate_market_slug(asset, prev_timestamp)
+                logger.info(f"[{asset}] Trying previous window: {prev_slug}")
                 
-                # Identify 15-minute crypto markets
-                is_15min = "15" in question and ("minute" in question or "min" in question)
+                response = await self.client.get(url, params={"slug": prev_slug})
+                events = response.json()
                 
-                # Check for specific assets
-                asset = None
-                if any(term in question for term in ["bitcoin", "btc"]):
-                    asset = "BTC"
-                elif any(term in question for term in ["ethereum", "eth"]):
-                    asset = "ETH"
-                elif any(term in question for term in ["solana", "sol"]):
-                    asset = "SOL"
-                
-                if is_15min and asset and market.get("enableOrderBook"):
-                    token_ids = market.get("clobTokenIds", [])
-                    if len(token_ids) >= 2:
-                        outcomes = market.get("outcomePrices", [0.5, 0.5])
-                        crypto_markets.append(CryptoMarket(
-                            condition_id=market.get("conditionId", ""),
-                            question=market.get("question", ""),
-                            yes_token_id=token_ids[0],
-                            no_token_id=token_ids[1],
-                            yes_price=float(outcomes[0]) if outcomes else 0.5,
-                            no_price=float(outcomes[1]) if len(outcomes) > 1 else 0.5,
-                            volume_24h=float(market.get("volume24h", 0)),
-                            is_active=market.get("active", False),
-                            asset=asset
-                        ))
+                if not events:
+                    logger.warning(f"[{asset}] No market found for previous window either")
+                    return None
             
-            logger.info(f"Found {len(crypto_markets)} 15-minute crypto markets")
-            return crypto_markets
+            event = events[0]
+            markets = event.get("markets", [])
             
+            if not markets:
+                logger.warning(f"[{asset}] Event found but no markets inside")
+                return None
+            
+            market = markets[0]
+            
+            # Check if market is accepting orders
+            if not market.get("acceptingOrders", False):
+                logger.warning(f"[{asset}] Market is not accepting orders")
+                return None
+            
+            # Parse token IDs from the clobTokenIds field (JSON string)
+            token_ids_str = market.get("clobTokenIds", "[]")
+            try:
+                token_ids = json.loads(token_ids_str)
+            except json.JSONDecodeError:
+                token_ids = []
+            
+            if len(token_ids) < 2:
+                logger.warning(f"[{asset}] Market missing token IDs")
+                return None
+            
+            # Parse outcome prices
+            prices_str = market.get("outcomePrices", "[0.5, 0.5]")
+            try:
+                prices = json.loads(prices_str)
+            except json.JSONDecodeError:
+                prices = [0.5, 0.5]
+            
+            # Parse end time
+            end_time = None
+            if market.get("endDate"):
+                try:
+                    end_time = datetime.fromisoformat(market["endDate"].replace("Z", "+00:00"))
+                except:
+                    pass
+            
+            crypto_market = CryptoMarket(
+                condition_id=market.get("conditionId", ""),
+                question=market.get("question", ""),
+                yes_token_id=token_ids[0],  # "Up" token
+                no_token_id=token_ids[1],    # "Down" token
+                yes_price=float(prices[0]) if prices else 0.5,
+                no_price=float(prices[1]) if len(prices) > 1 else 0.5,
+                volume_24h=float(market.get("volume24hr", 0) or market.get("volumeNum", 0)),
+                is_active=market.get("active", False),
+                asset=asset.upper(),
+                slug=market.get("slug", slug),
+                end_time=end_time,
+                accepting_orders=market.get("acceptingOrders", True)
+            )
+            
+            logger.info(f"[{asset}] Found market: {crypto_market.question}")
+            logger.info(f"[{asset}] Up price: {crypto_market.yes_price}, Down price: {crypto_market.no_price}")
+            
+            return crypto_market
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[{asset}] HTTP error fetching market: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to fetch markets: {e}")
-            return []
+            logger.error(f"[{asset}] Error fetching market: {e}", exc_info=True)
+            return None
     
-    async def get_market_for_asset(self, asset: str) -> Optional[CryptoMarket]:
-        """Get the current active 15-min market for a specific asset"""
-        markets = await self.fetch_15min_crypto_markets()
-        for market in markets:
-            if market.asset == asset and market.is_active:
-                return market
-        return None
+    async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
+        """Fetch all active 15-minute crypto direction markets for supported assets"""
+        markets = []
+        
+        for asset in self.ASSET_SLUG_MAP.keys():
+            market = await self.get_market_for_asset(asset)
+            if market:
+                markets.append(market)
+        
+        logger.info(f"Found {len(markets)} active 15-minute crypto markets")
+        return markets
     
     async def place_order(
         self, 
@@ -138,9 +229,12 @@ class PolymarketService:
         """
         Place a market order on Polymarket
         
-        Uses py-clob-client for real order execution
+        Uses py-clob-client for real order execution.
+        For 15-min markets:
+        - Buying "Up" token = betting price will go UP
+        - Buying "Down" token = betting price will go DOWN
         """
-        logger.info(f"[LIVE] Placing order: {'BUY' if is_buy else 'SELL'} {amount_usdc} USDC on token {token_id[:20]}...")
+        logger.info(f"[LIVE] Placing order: {'BUY' if is_buy else 'SELL'} {amount_usdc} USDC on token {token_id[:30]}...")
         
         try:
             await self._init_clob_client()
@@ -159,8 +253,13 @@ class PolymarketService:
             else:
                 price = 0.5  # Default midpoint
             
+            # Ensure price is within valid range
+            price = max(0.01, min(0.99, price))
+            
             # Calculate size based on USDC amount and price
             size = amount_usdc / price
+            
+            logger.info(f"[LIVE] Order details: price={price}, size={size}")
             
             # Create market order
             order_args = OrderArgs(
@@ -229,48 +328,144 @@ class PolymarketService:
             logger.error(f"Error fetching orderbook: {e}")
             return {"bids": [], "asks": []}
     
+    async def check_connection(self) -> Dict:
+        """Check connection to Polymarket APIs"""
+        result = {
+            "gamma_api": False,
+            "clob_api": False,
+            "wallet_connected": False,
+            "error": None
+        }
+        
+        try:
+            # Test Gamma API
+            response = await self.client.get(f"{self.GAMMA_HOST}/events?limit=1")
+            result["gamma_api"] = response.status_code == 200
+            
+            # Test CLOB API
+            response = await self.client.get(f"{self.CLOB_HOST}/time")
+            result["clob_api"] = response.status_code == 200
+            
+            # Check if private key is set
+            result["wallet_connected"] = bool(self.private_key and len(self.private_key) > 10)
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+    
     async def close(self):
         await self.client.aclose()
 
 
 class SimulatedPolymarketService:
-    """Simulated Polymarket service for dry-run testing"""
+    """Simulated Polymarket service for dry-run testing
+    
+    Uses the same market discovery logic but simulates order execution.
+    """
+    
+    GAMMA_HOST = "https://gamma-api.polymarket.com"
+    ASSET_SLUG_MAP = {"BTC": "btc", "ETH": "eth", "SOL": "sol"}
     
     def __init__(self):
-        self._markets = self._generate_fake_markets()
+        self.client = httpx.AsyncClient(timeout=30.0)
         self._trade_counter = 0
     
-    def _generate_fake_markets(self) -> List[CryptoMarket]:
-        """Generate simulated markets for testing"""
-        assets = ["BTC", "ETH", "SOL"]
-        markets = []
-        
-        for asset in assets:
-            markets.append(CryptoMarket(
-                condition_id=f"sim_cond_{asset.lower()}_{datetime.now().strftime('%H%M')}",
-                question=f"Will {asset} price go up in the next 15 minutes?",
-                yes_token_id=f"sim_yes_{asset.lower()}",
-                no_token_id=f"sim_no_{asset.lower()}",
-                yes_price=0.52,
-                no_price=0.48,
-                volume_24h=100000,
-                is_active=True,
-                asset=asset
-            ))
-        
-        return markets
+    def _get_current_15min_timestamp(self) -> int:
+        """Calculate the Unix timestamp for the current 15-minute window start"""
+        now = datetime.now(timezone.utc)
+        base_minute = (now.minute // 15) * 15
+        current_window = now.replace(minute=base_minute, second=0, microsecond=0)
+        return int(current_window.timestamp())
     
-    async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
-        # Regenerate markets each call to simulate new market periods
-        self._markets = self._generate_fake_markets()
-        return self._markets
+    def _generate_market_slug(self, asset: str, timestamp: Optional[int] = None) -> str:
+        if timestamp is None:
+            timestamp = self._get_current_15min_timestamp()
+        asset_prefix = self.ASSET_SLUG_MAP.get(asset.upper(), asset.lower())
+        return f"{asset_prefix}-updown-15m-{timestamp}"
     
     async def get_market_for_asset(self, asset: str) -> Optional[CryptoMarket]:
-        await self.fetch_15min_crypto_markets()
-        for market in self._markets:
-            if market.asset == asset:
-                return market
-        return None
+        """Get real market data but will simulate trades"""
+        try:
+            slug = self._generate_market_slug(asset)
+            logger.info(f"[DRY-RUN] [{asset}] Looking for market: {slug}")
+            
+            url = f"{self.GAMMA_HOST}/events"
+            response = await self.client.get(url, params={"slug": slug})
+            
+            if response.status_code != 200:
+                logger.warning(f"[DRY-RUN] [{asset}] API returned {response.status_code}")
+                return self._generate_simulated_market(asset)
+            
+            events = response.json()
+            
+            if not events:
+                # Try previous window
+                prev_ts = self._get_current_15min_timestamp() - 900
+                prev_slug = self._generate_market_slug(asset, prev_ts)
+                response = await self.client.get(url, params={"slug": prev_slug})
+                events = response.json()
+            
+            if not events:
+                logger.info(f"[DRY-RUN] [{asset}] No real market found, using simulated")
+                return self._generate_simulated_market(asset)
+            
+            event = events[0]
+            markets = event.get("markets", [])
+            
+            if not markets:
+                return self._generate_simulated_market(asset)
+            
+            market = markets[0]
+            token_ids = json.loads(market.get("clobTokenIds", "[]"))
+            prices = json.loads(market.get("outcomePrices", "[0.5, 0.5]"))
+            
+            if len(token_ids) < 2:
+                return self._generate_simulated_market(asset)
+            
+            return CryptoMarket(
+                condition_id=market.get("conditionId", ""),
+                question=market.get("question", ""),
+                yes_token_id=token_ids[0],
+                no_token_id=token_ids[1],
+                yes_price=float(prices[0]) if prices else 0.5,
+                no_price=float(prices[1]) if len(prices) > 1 else 0.5,
+                volume_24h=float(market.get("volumeNum", 0)),
+                is_active=market.get("active", True),
+                asset=asset.upper(),
+                slug=market.get("slug", slug),
+                accepting_orders=True
+            )
+            
+        except Exception as e:
+            logger.error(f"[DRY-RUN] Error fetching real market: {e}")
+            return self._generate_simulated_market(asset)
+    
+    def _generate_simulated_market(self, asset: str) -> CryptoMarket:
+        """Generate a simulated market when real API fails"""
+        timestamp = self._get_current_15min_timestamp()
+        return CryptoMarket(
+            condition_id=f"sim_cond_{asset.lower()}_{timestamp}",
+            question=f"Will {asset} price go up in the next 15 minutes? (SIMULATED)",
+            yes_token_id=f"sim_yes_{asset.lower()}_{timestamp}",
+            no_token_id=f"sim_no_{asset.lower()}_{timestamp}",
+            yes_price=0.50 + random.uniform(-0.05, 0.05),
+            no_price=0.50 + random.uniform(-0.05, 0.05),
+            volume_24h=100000,
+            is_active=True,
+            asset=asset.upper(),
+            slug=f"{asset.lower()}-updown-15m-{timestamp}-simulated",
+            accepting_orders=True
+        )
+    
+    async def fetch_15min_crypto_markets(self) -> List[CryptoMarket]:
+        """Fetch all active 15-minute crypto markets"""
+        markets = []
+        for asset in self.ASSET_SLUG_MAP.keys():
+            market = await self.get_market_for_asset(asset)
+            if market:
+                markets.append(market)
+        return markets
     
     async def place_order(
         self, 
@@ -306,5 +501,14 @@ class SimulatedPolymarketService:
             "asks": [{"price": "0.51", "size": "1500"}, {"price": "0.52", "size": "2500"}]
         }
     
+    async def check_connection(self) -> Dict:
+        """Check connection status"""
+        return {
+            "gamma_api": True,
+            "clob_api": True,
+            "wallet_connected": True,
+            "simulated": True
+        }
+    
     async def close(self):
-        pass
+        await self.client.aclose()
