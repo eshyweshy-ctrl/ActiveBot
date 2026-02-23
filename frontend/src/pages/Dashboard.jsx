@@ -458,64 +458,92 @@ const Dashboard = ({
                     <th className="text-left p-4">Asset</th>
                     <th className="text-left p-4">Direction</th>
                     <th className="text-left p-4">Amount</th>
+                    <th className="text-left p-4">CFGI</th>
                     <th className="text-left p-4">Entry</th>
                     <th className="text-left p-4">Exit</th>
                     <th className="text-left p-4">P&L</th>
                     <th className="text-left p-4">Status</th>
                     <th className="text-left p-4">Time</th>
+                    <th className="text-left p-4">Duration</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trades.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="text-center p-8 text-muted-foreground font-mono">
+                      <td colSpan="10" className="text-center p-8 text-muted-foreground font-mono">
                         No trades yet. Start the bot to begin trading.
                       </td>
                     </tr>
                   ) : (
-                    trades.map((trade) => (
-                      <tr
-                        key={trade.id}
-                        className="border-b border-border/50 hover:bg-muted/50 transition-colors"
-                        data-testid={`trade-row-${trade.id}`}
-                      >
-                        <td className="p-4 font-mono font-medium">{trade.asset}</td>
-                        <td className="p-4">
-                          <span className={`flex items-center gap-1 ${trade.direction === "UP" ? "text-primary" : "text-destructive"}`}>
-                            {trade.direction === "UP" ? (
-                              <TrendingUp className="w-4 h-4" />
-                            ) : (
-                              <TrendingDown className="w-4 h-4" />
-                            )}
-                            {trade.direction}
-                          </span>
-                        </td>
-                        <td className="p-4 font-mono">${trade.amount_usdc}</td>
-                        <td className="p-4 font-mono">{trade.entry_price?.toFixed(4)}</td>
-                        <td className="p-4 font-mono">{trade.exit_price?.toFixed(4) || "-"}</td>
-                        <td className={`p-4 font-mono font-medium ${trade.pnl >= 0 ? "number-positive" : "number-negative"}`}>
-                          {trade.pnl !== null ? formatPnl(trade.pnl) : "-"}
-                        </td>
-                        <td className="p-4">
-                          <Badge
-                            className={`rounded-none px-2 py-0.5 text-xs font-mono uppercase tracking-widest ${
-                              trade.status === "WON"
-                                ? "badge-success"
-                                : trade.status === "LOST"
-                                ? "badge-error"
-                                : trade.status === "OPEN"
-                                ? "bg-accent/20 text-accent border border-accent/50"
-                                : "badge-neutral"
-                            }`}
-                          >
-                            {trade.status}
-                          </Badge>
-                        </td>
-                        <td className="p-4 text-muted-foreground text-xs">
-                          {new Date(trade.timestamp).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))
+                    trades.map((trade) => {
+                      const entryTime = new Date(trade.timestamp);
+                      const exitTime = trade.closed_at ? new Date(trade.closed_at) : null;
+                      const duration = exitTime 
+                        ? Math.round((exitTime - entryTime) / 1000 / 60) 
+                        : null;
+                      
+                      return (
+                        <tr
+                          key={trade.id}
+                          className="border-b border-border/50 hover:bg-muted/50 transition-colors"
+                          data-testid={`trade-row-${trade.id}`}
+                        >
+                          <td className="p-4 font-mono font-medium">{trade.asset}</td>
+                          <td className="p-4">
+                            <span className={`flex items-center gap-1 ${trade.direction === "UP" ? "text-primary" : "text-destructive"}`}>
+                              {trade.direction === "UP" ? (
+                                <TrendingUp className="w-4 h-4" />
+                              ) : (
+                                <TrendingDown className="w-4 h-4" />
+                              )}
+                              {trade.direction}
+                            </span>
+                          </td>
+                          <td className="p-4 font-mono">${trade.amount_usdc}</td>
+                          <td className="p-4">
+                            <span className={`font-mono text-sm ${
+                              trade.cfgi_score <= 19 ? "text-destructive" : 
+                              trade.cfgi_score >= 80 ? "text-primary" : 
+                              "text-muted-foreground"
+                            }`}>
+                              {trade.cfgi_score || "-"}
+                            </span>
+                          </td>
+                          <td className="p-4 font-mono">{trade.entry_price?.toFixed(4)}</td>
+                          <td className="p-4 font-mono">{trade.exit_price?.toFixed(4) || "-"}</td>
+                          <td className={`p-4 font-mono font-medium ${trade.pnl >= 0 ? "number-positive" : "number-negative"}`}>
+                            {trade.pnl !== null ? formatPnl(trade.pnl) : "-"}
+                          </td>
+                          <td className="p-4">
+                            <Badge
+                              className={`rounded-none px-2 py-0.5 text-xs font-mono uppercase tracking-widest ${
+                                trade.status === "WON"
+                                  ? "badge-success"
+                                  : trade.status === "LOST"
+                                  ? "badge-error"
+                                  : trade.status === "OPEN"
+                                  ? "bg-accent/20 text-accent border border-accent/50"
+                                  : "badge-neutral"
+                              }`}
+                            >
+                              {trade.status}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-muted-foreground text-xs">
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {entryTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground/70">
+                              {entryTime.toLocaleDateString()}
+                            </div>
+                          </td>
+                          <td className="p-4 text-muted-foreground text-xs font-mono">
+                            {duration !== null ? `${duration}m` : "..."}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
