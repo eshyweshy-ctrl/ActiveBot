@@ -95,13 +95,14 @@ function App() {
     if (!isAuthenticated) return;
     
     try {
-      const [statusRes, statsRes, sentimentRes, tradesRes, pnlRes, sysStatusRes] = await Promise.all([
+      const [statusRes, statsRes, sentimentRes, tradesRes, pnlRes, sysStatusRes, walletRes] = await Promise.all([
         api.get("/bot/status"),
         api.get("/stats"),
         api.get("/sentiment/current"),
         api.get("/trades?limit=20"),
         api.get("/stats/pnl-history"),
         api.get("/system/status"),
+        api.get("/wallet/info"),
       ]);
 
       setBotStatus(statusRes.data);
@@ -110,6 +111,7 @@ function App() {
       setTrades(tradesRes.data);
       setPnlHistory(pnlRes.data);
       setSystemStatus(sysStatusRes.data);
+      setWalletInfo(walletRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
