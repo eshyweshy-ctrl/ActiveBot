@@ -361,7 +361,12 @@ class PolymarketService:
         return result
     
     def get_wallet_address(self) -> Optional[str]:
-        """Get the wallet address from the private key"""
+        """Get the wallet address - uses explicit address if set, otherwise derives from PK"""
+        # Prefer explicit wallet address from env
+        if self.wallet_address and len(self.wallet_address) > 10:
+            return self.wallet_address
+        
+        # Fall back to deriving from private key
         if not self.private_key or len(self.private_key) < 10:
             return None
         
