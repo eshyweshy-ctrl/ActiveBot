@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 class CFGIService:
     """Service to fetch Crypto Fear & Greed Index data from CFGI.io"""
     
-    # Map asset symbols to CFGI.io page URLs
+    # Map asset symbols to CFGI.io page URLs (15-minute timeframe for trading)
     ASSET_URLS = {
-        "BTC": "https://cfgi.io/bitcoin-fear-greed-index/",
-        "ETH": "https://cfgi.io/ethereum-fear-greed-index/",
-        "SOL": "https://cfgi.io/solana-fear-greed-index/"
+        "BTC": "https://cfgi.io/bitcoin-fear-greed-index/15m",
+        "ETH": "https://cfgi.io/ethereum-fear-greed-index/15m",
+        "SOL": "https://cfgi.io/solana-fear-greed-index/15m"
     }
     
     def __init__(self, api_key: Optional[str] = None):
