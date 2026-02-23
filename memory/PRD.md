@@ -86,6 +86,8 @@ The timestamp represents the START of the 15-minute trading window, rounded down
 ### API Endpoints
 - `GET /api/markets` - Lists all discovered 15-minute crypto markets
 - `GET /api/markets/test` - Tests Polymarket API connection and market discovery
+- `GET /api/wallet/info` - Gets wallet address and balances (USDC, MATIC, positions)
+- `GET /api/wallet/positions` - Gets current open positions for the wallet
 - `POST /api/bot/start` - Starts the trading bot
 - `POST /api/bot/stop` - Stops the trading bot
 - `GET /api/sentiment/current` - Gets current CFGI sentiment for all assets
