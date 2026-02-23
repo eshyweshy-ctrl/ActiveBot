@@ -199,31 +199,24 @@ async def update_config(update: ConfigUpdate):
 # Sentiment
 @api_router.get("/sentiment/current")
 async def get_current_sentiment():
-    """Get current sentiment for all assets"""
+    """Get current sentiment for all assets - ALWAYS uses real CFGI data"""
     global trading_bot
     
-    if trading_bot and trading_bot.cfgi_service:
+    # Always use real CFGI service for sentiment
+    cfgi_service = CFGIService()
+    
+    try:
         sentiments = {}
         for asset in ["BTC", "ETH", "SOL"]:
-            sentiment = await trading_bot.cfgi_service.get_sentiment(asset)
+            sentiment = await cfgi_service.get_sentiment(asset)
             sentiments[asset] = {
                 "score": sentiment['score'],
                 "signal": sentiment['signal'],
                 "timestamp": sentiment['timestamp'].isoformat()
             }
         return sentiments
-    
-    # Fallback - use simulated service
-    sim_service = SimulatedCFGIService()
-    sentiments = {}
-    for asset in ["BTC", "ETH", "SOL"]:
-        sentiment = await sim_service.get_sentiment(asset)
-        sentiments[asset] = {
-            "score": sentiment['score'],
-            "signal": sentiment['signal'],
-            "timestamp": sentiment['timestamp'].isoformat()
-        }
-    return sentiments
+    finally:
+        await cfgi_service.close()
 
 @api_router.get("/sentiment/history")
 async def get_sentiment_history(asset: Optional[str] = None, limit: int = 100):
