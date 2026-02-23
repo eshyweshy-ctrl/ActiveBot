@@ -11,17 +11,20 @@ import {
   DollarSign,
   Target,
   Zap,
+  Wifi,
+  WifiOff,
+  Database,
+  Send,
+  Globe,
 } from "lucide-react";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  AreaChart,
 } from "recharts";
 
 const Dashboard = ({
@@ -30,6 +33,7 @@ const Dashboard = ({
   sentiment,
   trades,
   pnlHistory,
+  systemStatus,
   onStart,
   onStop,
   onRefresh,
@@ -57,6 +61,18 @@ const Dashboard = ({
     if (score <= 59) return "NEUTRAL";
     if (score <= 79) return "GREED";
     return "EXTREME GREED";
+  };
+
+  const getStatusIcon = (status) => {
+    if (status === "online") return <Wifi className="w-4 h-4 text-primary" />;
+    if (status === "offline" || status === "error") return <WifiOff className="w-4 h-4 text-destructive" />;
+    return <Wifi className="w-4 h-4 text-muted-foreground" />;
+  };
+
+  const getStatusBadge = (status) => {
+    if (status === "online") return "badge-success";
+    if (status === "offline" || status === "error") return "badge-error";
+    return "badge-neutral";
   };
 
   return (
@@ -107,6 +123,68 @@ const Dashboard = ({
         </div>
       </div>
 
+      {/* System Status Bar */}
+      <Card className="bg-card border-border rounded-sm shadow-none">
+        <CardHeader className="border-b border-border p-4">
+          <CardTitle className="text-lg font-mono uppercase tracking-wider flex items-center gap-2">
+            <Globe className="w-5 h-5 text-primary" />
+            System Status
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono text-sm">CFGI.io</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {getStatusIcon(systemStatus.cfgi_api)}
+                <Badge className={`${getStatusBadge(systemStatus.cfgi_api)} rounded-none px-2 py-0.5 text-xs font-mono uppercase`}>
+                  {systemStatus.cfgi_api}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono text-sm">Polymarket</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {getStatusIcon(systemStatus.polymarket_api)}
+                <Badge className={`${getStatusBadge(systemStatus.polymarket_api)} rounded-none px-2 py-0.5 text-xs font-mono uppercase`}>
+                  {systemStatus.polymarket_api}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono text-sm">MongoDB</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {getStatusIcon(systemStatus.mongodb)}
+                <Badge className={`${getStatusBadge(systemStatus.mongodb)} rounded-none px-2 py-0.5 text-xs font-mono uppercase`}>
+                  {systemStatus.mongodb}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-muted rounded-sm border border-border">
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-muted-foreground" />
+                <span className="font-mono text-sm">Telegram</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {getStatusIcon(systemStatus.telegram)}
+                <Badge className={`${getStatusBadge(systemStatus.telegram)} rounded-none px-2 py-0.5 text-xs font-mono uppercase`}>
+                  {systemStatus.telegram}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Bento Grid Layout */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 auto-rows-[minmax(180px,auto)]">
         {/* Sentiment Hero - Spans 8 cols, 2 rows */}
@@ -115,7 +193,7 @@ const Dashboard = ({
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg font-mono uppercase tracking-wider flex items-center gap-2">
                 <Activity className="w-5 h-5 text-primary" />
-                Sentiment Analysis
+                Sentiment Analysis (15-min)
               </CardTitle>
               <Badge className={`${getSignalBadge(sentiment.BTC?.signal)} rounded-none px-2 py-0.5 text-xs font-mono uppercase tracking-widest`}>
                 {sentiment.BTC?.signal || "HOLD"}
@@ -221,7 +299,7 @@ const Dashboard = ({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground font-mono uppercase text-xs">Mode</span>
-                <Badge className="badge-warning rounded-none px-2 py-0.5 text-xs font-mono">
+                <Badge className={`${botStatus.config?.dry_run_mode ? "badge-warning" : "badge-error"} rounded-none px-2 py-0.5 text-xs font-mono`}>
                   {botStatus.config?.dry_run_mode ? "DRY RUN" : "LIVE"}
                 </Badge>
               </div>
