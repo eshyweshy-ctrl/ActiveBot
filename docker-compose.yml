@@ -1,0 +1,77 @@
+# ACTIVEBOT - Docker Compose for DigitalOcean Deployment
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: activebot-mongo
+    restart: always
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=activebot_db
+    networks:
+      - activebot-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: activebot-backend
+    restart: always
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=activebot_db
+      - CORS_ORIGINS=*
+      - CFGI_API_KEY=${CFGI_API_KEY}
+      - POLYMARKET_PRIVATE_KEY=${POLYMARKET_PRIVATE_KEY}
+      - RPC_URL=${RPC_URL:-https://polygon-rpc.com}
+      - TRADE_SIZE_USDC=${TRADE_SIZE_USDC:-1}
+      - NETWORK=polygon
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    ports:
+      - "8001:8001"
+    networks:
+      - activebot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
+    container_name: activebot-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - activebot-network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  activebot-network:
+    driver: bridge
