@@ -93,15 +93,19 @@ class PolymarketService:
         try:
             from py_clob_client.client import ClobClient
             
-            # Initialize CLOB client
+            # Initialize CLOB client with private key
             self._clob_client = ClobClient(
                 self.CLOB_HOST,
                 key=self.private_key,
                 chain_id=self.CHAIN_ID
             )
             
-            # Derive API credentials
-            self._clob_client.set_api_creds(self._clob_client.derive_api_key())
+            # Derive API credentials from private key (most reliable method)
+            logger.info("Deriving API credentials from private key...")
+            api_creds = self._clob_client.derive_api_key()
+            self._clob_client.set_api_creds(api_creds)
+            
+            logger.info(f"API Key derived: {api_creds.api_key}")
             
             self._initialized = True
             logger.info("Polymarket CLOB client initialized successfully")
