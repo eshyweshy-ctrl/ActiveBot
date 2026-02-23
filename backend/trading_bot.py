@@ -133,16 +133,32 @@ class ActiveBot:
             logger.info("Next cycle in 15 minutes...")
             await asyncio.sleep(900)
     
-    async def _execute_cycle(self):
+    async def _execute_cycle(self, cycle_count: int = 1):
         """Execute one trading cycle"""
         if not self.config:
             await self.load_config()
         
-        logger.info("Starting trading cycle...")
+        logger.info(f"Starting trading cycle #{cycle_count}...")
         
+        # Collect sentiment for all assets
+        sentiments = {}
+        for asset in self.config.assets_enabled:
+            sentiment = await self.cfgi_service.get_sentiment(asset)
+            sentiments[asset] = sentiment
+        
+        # Send scanning update to Telegram
+        if self.config.telegram_enabled and self.config.telegram_chat_id:
+            await self.telegram_service.send_scanning_update(
+                chat_id=self.config.telegram_chat_id,
+                sentiments=sentiments,
+                cycle_count=cycle_count,
+                is_running=self.is_running
+            )
+        
+        # Process each asset
         for asset in self.config.assets_enabled:
             try:
-                await self._process_asset(asset)
+                await self._process_asset(asset, sentiments[asset])
             except Exception as e:
                 logger.error(f"Error processing {asset}: {e}")
     
