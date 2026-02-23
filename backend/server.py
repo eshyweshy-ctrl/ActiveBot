@@ -514,6 +514,51 @@ async def test_polymarket_connection():
     finally:
         await service.close()
 
+@api_router.get("/wallet/info")
+async def get_wallet_info():
+    """Get connected wallet information including balance and positions"""
+    from polymarket_service import PolymarketService
+    
+    service = PolymarketService()
+    try:
+        wallet_info = await service.get_wallet_info()
+        return wallet_info
+    finally:
+        await service.close()
+
+@api_router.get("/wallet/positions")
+async def get_wallet_positions():
+    """Get current positions for the connected wallet"""
+    from polymarket_service import PolymarketService
+    import httpx
+    
+    service = PolymarketService()
+    try:
+        wallet_address = service.get_wallet_address()
+        if not wallet_address:
+            return {"positions": [], "error": "No wallet configured"}
+        
+        # Fetch positions from Data API
+        data_api = "https://data-api.polymarket.com"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{data_api}/positions",
+                params={"user": wallet_address}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "positions": data if isinstance(data, list) else [],
+                    "wallet_address": wallet_address
+                }
+            else:
+                return {"positions": [], "error": f"API returned {response.status_code}"}
+    except Exception as e:
+        return {"positions": [], "error": str(e)}
+    finally:
+        await service.close()
+
 # Include the router
 app.include_router(api_router)
 
