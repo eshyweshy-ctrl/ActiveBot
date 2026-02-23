@@ -421,7 +421,11 @@ async def test_telegram(request: TelegramTestRequest):
 # Markets (from Polymarket)
 @api_router.get("/markets")
 async def get_markets():
-    """Get available 15-min crypto markets"""
+    """Get available 15-min crypto markets using the correct Polymarket API
+    
+    Markets are discovered using the dynamic slug pattern:
+    {asset}-updown-15m-{unix_timestamp}
+    """
     global trading_bot
     
     if trading_bot and trading_bot.polymarket_service:
@@ -431,30 +435,84 @@ async def get_markets():
                 "condition_id": m.condition_id,
                 "question": m.question,
                 "asset": m.asset,
+                "slug": m.slug,
+                "yes_token_id": m.yes_token_id[:30] + "..." if len(m.yes_token_id) > 30 else m.yes_token_id,
+                "no_token_id": m.no_token_id[:30] + "..." if len(m.no_token_id) > 30 else m.no_token_id,
                 "yes_price": m.yes_price,
                 "no_price": m.no_price,
                 "volume_24h": m.volume_24h,
-                "is_active": m.is_active
+                "is_active": m.is_active,
+                "accepting_orders": m.accepting_orders
             }
             for m in markets
         ]
     
-    # Return simulated markets
+    # Use SimulatedPolymarketService which still fetches real market data
     from polymarket_service import SimulatedPolymarketService
     sim = SimulatedPolymarketService()
-    markets = await sim.fetch_15min_crypto_markets()
-    return [
-        {
-            "condition_id": m.condition_id,
-            "question": m.question,
-            "asset": m.asset,
-            "yes_price": m.yes_price,
-            "no_price": m.no_price,
-            "volume_24h": m.volume_24h,
-            "is_active": m.is_active
+    try:
+        markets = await sim.fetch_15min_crypto_markets()
+        return [
+            {
+                "condition_id": m.condition_id,
+                "question": m.question,
+                "asset": m.asset,
+                "slug": m.slug,
+                "yes_token_id": m.yes_token_id[:30] + "..." if len(m.yes_token_id) > 30 else m.yes_token_id,
+                "no_token_id": m.no_token_id[:30] + "..." if len(m.no_token_id) > 30 else m.no_token_id,
+                "yes_price": m.yes_price,
+                "no_price": m.no_price,
+                "volume_24h": m.volume_24h,
+                "is_active": m.is_active,
+                "accepting_orders": m.accepting_orders
+            }
+            for m in markets
+        ]
+    finally:
+        await sim.close()
+
+@api_router.get("/markets/test")
+async def test_polymarket_connection():
+    """Test the Polymarket API connection and market discovery
+    
+    This endpoint verifies:
+    1. Connection to Gamma API
+    2. Connection to CLOB API
+    3. Ability to discover 15-minute markets
+    4. Wallet configuration status
+    """
+    from polymarket_service import PolymarketService
+    
+    service = PolymarketService()
+    try:
+        # Check connection
+        connection_status = await service.check_connection()
+        
+        # Try to fetch current markets
+        markets_found = []
+        for asset in ["BTC", "ETH", "SOL"]:
+            market = await service.get_market_for_asset(asset)
+            if market:
+                markets_found.append({
+                    "asset": asset,
+                    "slug": market.slug,
+                    "question": market.question,
+                    "condition_id": market.condition_id[:20] + "...",
+                    "prices": {
+                        "up": market.yes_price,
+                        "down": market.no_price
+                    },
+                    "accepting_orders": market.accepting_orders
+                })
+        
+        return {
+            "connection": connection_status,
+            "markets_found": len(markets_found),
+            "markets": markets_found,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        for m in markets
-    ]
+    finally:
+        await service.close()
 
 # Include the router
 app.include_router(api_router)
