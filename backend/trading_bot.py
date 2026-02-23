@@ -216,7 +216,9 @@ class ActiveBot:
                     direction=direction,
                     amount=self.config.trade_size_usdc,
                     cfgi_score=sentiment['score'],
-                    signal=sentiment['signal']
+                    signal=sentiment['signal'],
+                    entry_price=trade.entry_price,
+                    market_id=market.condition_id
                 )
         else:
             trade.status = "CANCELLED"
