@@ -402,9 +402,24 @@ async def startup_event():
     global trading_bot
     logger.info("ACTIVEBOT API starting up...")
     
-    # Initialize bot in stopped state
-    trading_bot = ActiveBot(db, dry_run=True)
+    # Load config first to check dry_run mode
+    config_doc = await db.bot_config.find_one({"id": "main_config"}, {"_id": 0})
+    dry_run = True
+    if config_doc:
+        dry_run = config_doc.get("dry_run_mode", True)
+    
+    # Initialize bot with correct mode
+    trading_bot = ActiveBot(db, dry_run=dry_run)
     await trading_bot.load_config()
+    
+    # Set defaults from environment if config not set
+    if trading_bot.config:
+        # Update Telegram settings from env if not already set
+        telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if telegram_chat_id and not trading_bot.config.telegram_chat_id:
+            trading_bot.config.telegram_chat_id = telegram_chat_id
+            trading_bot.config.telegram_enabled = True
+            await trading_bot.save_config()
     
     # Auto-start if was running before
     if trading_bot.config and trading_bot.config.is_running:
