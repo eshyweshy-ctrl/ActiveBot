@@ -134,6 +134,62 @@ class TelegramService:
 """
         return await self.send_message(chat_id, message)
     
+    async def send_scanning_update(
+        self,
+        chat_id: str,
+        sentiments: dict,
+        cycle_count: int = 1,
+        is_running: bool = True
+    ) -> bool:
+        """Send scanning status update with current sentiment readings"""
+        
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        
+        # Status indicator
+        if is_running:
+            status_icon = "🟢"
+            status_text = "ACTIVE"
+        else:
+            status_icon = "🔴"
+            status_text = "STOPPED"
+        
+        lines = []
+        trade_signals = []
+        for asset, data in sentiments.items():
+            score = data.get('score', 50)
+            signal = data.get('signal', 'HOLD')
+            
+            if signal == "BUY_YES":
+                emoji = "🟢"
+                action = "BUY YES ⬆️"
+                trade_signals.append(f"{asset} → BUY YES")
+            elif signal == "BUY_NO":
+                emoji = "🔴" 
+                action = "BUY NO ⬇️"
+                trade_signals.append(f"{asset} → BUY NO")
+            else:
+                emoji = "⚪"
+                action = "HOLD"
+            
+            lines.append(f"{emoji} <b>{asset}:</b> {score}/100 → {action}")
+        
+        sentiment_text = "\n".join(lines)
+        
+        # Add trade alert if any signals
+        trade_alert = ""
+        if trade_signals:
+            trade_alert = f"\n⚡ <b>TRADE SIGNAL:</b> {', '.join(trade_signals)}\n"
+        
+        message = f"""
+{status_icon} <b>BOT {status_text}</b> | Scan #{cycle_count} | {timestamp}
+━━━━━━━━━━━━━━━━━━
+
+{sentiment_text}
+{trade_alert}
+<i>📡 Next scan in 15 minutes</i>
+"""
+        return await self.send_message(chat_id, message)
+    
     async def send_cycle_update(
         self,
         chat_id: str,
