@@ -456,8 +456,8 @@ class PolymarketService:
             # Get MATIC balance
             try:
                 rpc_urls = [
-                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
-                    "https://polygon-bor-rpc.publicnode.com"
+                    "https://polygon-bor-rpc.publicnode.com",
+                    "https://polygon-mainnet.g.alchemy.com/v2/demo"
                 ]
                 
                 for rpc_url in rpc_urls:
