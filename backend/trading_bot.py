@@ -121,9 +121,11 @@ class ActiveBot:
     
     async def _run_loop(self):
         """Main trading loop - runs every 15 minutes for 15-min markets"""
+        cycle_count = 0
         while self.is_running:
             try:
-                await self._execute_cycle()
+                cycle_count += 1
+                await self._execute_cycle(cycle_count)
             except Exception as e:
                 logger.error(f"Error in trading cycle: {e}", exc_info=True)
             
