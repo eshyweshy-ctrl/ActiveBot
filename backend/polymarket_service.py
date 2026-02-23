@@ -264,9 +264,11 @@ class PolymarketService:
         - Buying "Down" token = betting price will go DOWN
         """
         logger.info(f"[LIVE] Placing order: {'BUY' if is_buy else 'SELL'} {amount_usdc} USDC on token {token_id[:30]}...")
+        logger.info(f"[LIVE] Using proxy address: {self.proxy_address}")
         
         try:
-            await self._init_clob_client()
+            # Force re-init to ensure correct funder is set
+            await self._init_clob_client(force_reinit=True)
             
             from py_clob_client.clob_types import OrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY, SELL
