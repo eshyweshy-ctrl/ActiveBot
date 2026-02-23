@@ -212,6 +212,7 @@ function App() {
                   trades={trades}
                   pnlHistory={pnlHistory}
                   systemStatus={systemStatus}
+                  walletInfo={walletInfo}
                   onStart={startBot}
                   onStop={stopBot}
                   onRefresh={fetchData}
