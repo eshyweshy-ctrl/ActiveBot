@@ -184,6 +184,109 @@ async def stop_bot():
     await trading_bot.stop()
     return {"status": "stopped", "message": "Bot stopped successfully"}
 
+class TestTradeRequest(BaseModel):
+    asset: str = "BTC"
+    direction: str = "UP"  # UP or DOWN
+    amount: float = 1.0
+
+@api_router.post("/bot/test-trade")
+async def execute_test_trade(request: TestTradeRequest):
+    """Execute a test trade to verify Polymarket integration works
+    
+    This places a real trade on Polymarket to verify:
+    1. Market discovery works
+    2. Order placement works
+    3. Wallet has sufficient funds
+    """
+    from polymarket_service import PolymarketService
+    
+    logger.info(f"[TEST TRADE] Initiating test trade: {request.asset} {request.direction} ${request.amount}")
+    
+    result = {
+        "success": False,
+        "asset": request.asset,
+        "direction": request.direction,
+        "amount": request.amount,
+        "market_found": False,
+        "market_slug": None,
+        "order_result": None,
+        "error": None
+    }
+    
+    service = PolymarketService()
+    
+    try:
+        # Step 1: Find the current 15-min market for the asset
+        logger.info(f"[TEST TRADE] Looking for {request.asset} 15-min market...")
+        market = await service.get_market_for_asset(request.asset)
+        
+        if not market:
+            result["error"] = f"No active 15-minute market found for {request.asset}"
+            return result
+        
+        result["market_found"] = True
+        result["market_slug"] = market.slug
+        result["market_question"] = market.question
+        result["market_prices"] = {
+            "up": market.yes_price,
+            "down": market.no_price
+        }
+        
+        logger.info(f"[TEST TRADE] Found market: {market.slug}")
+        logger.info(f"[TEST TRADE] Prices - Up: {market.yes_price}, Down: {market.no_price}")
+        
+        # Step 2: Determine which token to buy based on direction
+        if request.direction.upper() == "UP":
+            token_id = market.yes_token_id
+            token_name = "UP (Yes)"
+        else:
+            token_id = market.no_token_id
+            token_name = "DOWN (No)"
+        
+        logger.info(f"[TEST TRADE] Placing order for {token_name} token...")
+        
+        # Step 3: Place the order
+        order_result = await service.place_order(
+            token_id=token_id,
+            amount_usdc=request.amount,
+            is_buy=True
+        )
+        
+        result["order_result"] = order_result
+        result["success"] = order_result.get("success", False)
+        
+        if result["success"]:
+            logger.info(f"[TEST TRADE] SUCCESS! Order placed: {order_result}")
+            
+            # Save test trade to database
+            trade_doc = {
+                "id": f"test_{datetime.now(timezone.utc).timestamp()}",
+                "asset": request.asset,
+                "direction": request.direction,
+                "amount_usdc": request.amount,
+                "entry_price": order_result.get("executed_price", 0),
+                "status": "TEST",
+                "timestamp": datetime.now(timezone.utc),
+                "market_slug": market.slug,
+                "order_id": order_result.get("order_id"),
+                "tx_hash": order_result.get("tx_hash"),
+                "is_test_trade": True
+            }
+            await db.trades.insert_one(trade_doc)
+        else:
+            error_msg = order_result.get("error_message", "Unknown error")
+            result["error"] = f"Order failed: {error_msg}"
+            logger.error(f"[TEST TRADE] FAILED: {error_msg}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[TEST TRADE] Exception: {e}", exc_info=True)
+        result["error"] = str(e)
+        return result
+    finally:
+        await service.close()
+
 @api_router.get("/bot/status")
 async def get_bot_status():
     global trading_bot
