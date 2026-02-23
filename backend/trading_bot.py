@@ -69,16 +69,43 @@ class ActiveBot:
             return
         
         await self.load_config()
+        
+        # Update dry_run based on config
+        self.dry_run = self.config.dry_run_mode
+        
+        # Reinitialize polymarket service based on mode
+        if self.dry_run:
+            self.polymarket_service = SimulatedPolymarketService()
+        else:
+            self.polymarket_service = PolymarketService()
+        
         self.is_running = True
         self.config.is_running = True
         await self.save_config()
         
         logger.info(f"Starting ACTIVEBOT (dry_run={self.dry_run})")
+        
+        # Send Telegram notification
+        if self.config.telegram_enabled and self.config.telegram_chat_id:
+            await self.telegram_service.send_bot_started(
+                self.config.telegram_chat_id,
+                {
+                    "assets_enabled": self.config.assets_enabled,
+                    "trade_size_usdc": self.config.trade_size_usdc,
+                    "dry_run_mode": self.dry_run
+                }
+            )
+        
         self._task = asyncio.create_task(self._run_loop())
     
     async def stop(self):
         """Stop the trading bot"""
         self.is_running = False
+        
+        # Send Telegram notification
+        if self.config and self.config.telegram_enabled and self.config.telegram_chat_id:
+            await self.telegram_service.send_bot_stopped(self.config.telegram_chat_id)
+        
         if self.config:
             self.config.is_running = False
             await self.save_config()
