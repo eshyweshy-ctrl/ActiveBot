@@ -43,6 +43,16 @@ Build ACTIVEBOT - a cloud-hosted automated trading bot that reads crypto sentime
 - Scanning status updates working
 - Trade alerts configured (will trigger on extreme sentiment)
 
+**✨ NEW: Wallet Info & Enhanced Trade Display**
+- Added wallet balance display (USDC, MATIC, Positions Value)
+- Shows connected wallet address with copy-to-clipboard and Polygonscan link
+- Added Wallet status to System Status bar
+- Enhanced Recent Trades table with:
+  - CFGI score column (shows sentiment at time of trade)
+  - Improved time display with separate date
+  - Trade duration column
+- Added `/api/wallet/info` and `/api/wallet/positions` endpoints
+
 ### Backend
 - FastAPI server with CORS support
 - MongoDB integration for trades and config storage
