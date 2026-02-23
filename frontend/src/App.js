@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import TradeHistory from "./pages/TradeHistory";
 import Navigation from "./components/Navigation";
+import Login from "./pages/Login";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,6 +19,8 @@ const api = axios.create({
 });
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [botStatus, setBotStatus] = useState({
     is_running: false,
     config: {
@@ -44,16 +47,53 @@ function App() {
   });
   const [trades, setTrades] = useState([]);
   const [pnlHistory, setPnlHistory] = useState([]);
+  const [systemStatus, setSystemStatus] = useState({
+    cfgi_api: "unknown",
+    polymarket_api: "unknown",
+    mongodb: "unknown",
+    telegram: "unknown",
+  });
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
+  // Check if already logged in
+  useEffect(() => {
+    const savedAuth = localStorage.getItem("activebot_auth");
+    if (savedAuth === "true") {
+      setIsAuthenticated(true);
+    }
+    setCheckingAuth(false);
+  }, []);
+
+  const handleLogin = async (password) => {
     try {
-      const [statusRes, statsRes, sentimentRes, tradesRes, pnlRes] = await Promise.all([
+      const response = await api.post("/auth/login", { password });
+      if (response.data.authenticated) {
+        setIsAuthenticated(true);
+        localStorage.setItem("activebot_auth", "true");
+        return true;
+      }
+    } catch (error) {
+      return false;
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem("activebot_auth");
+  };
+
+  const fetchData = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
+    try {
+      const [statusRes, statsRes, sentimentRes, tradesRes, pnlRes, sysStatusRes] = await Promise.all([
         api.get("/bot/status"),
         api.get("/stats"),
         api.get("/sentiment/current"),
         api.get("/trades?limit=20"),
         api.get("/stats/pnl-history"),
+        api.get("/system/status"),
       ]);
 
       setBotStatus(statusRes.data);
@@ -61,18 +101,21 @@ function App() {
       setSentiment(sentimentRes.data);
       setTrades(tradesRes.data);
       setPnlHistory(pnlRes.data);
+      setSystemStatus(sysStatusRes.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000); // Refresh every 10 seconds
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    if (isAuthenticated) {
+      fetchData();
+      const interval = setInterval(fetchData, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchData, isAuthenticated]);
 
   const startBot = async () => {
     try {
@@ -115,6 +158,23 @@ function App() {
     }
   };
 
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <Login onLogin={handleLogin} />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -129,7 +189,7 @@ function App() {
   return (
     <div className="min-h-screen bg-background grid-bg">
       <BrowserRouter>
-        <Navigation isRunning={botStatus.is_running} />
+        <Navigation isRunning={botStatus.is_running} onLogout={handleLogout} />
         <main className="max-w-[1600px] mx-auto p-4 md:p-6">
           <Routes>
             <Route
@@ -141,6 +201,7 @@ function App() {
                   sentiment={sentiment}
                   trades={trades}
                   pnlHistory={pnlHistory}
+                  systemStatus={systemStatus}
                   onStart={startBot}
                   onStop={stopBot}
                   onRefresh={fetchData}
@@ -161,6 +222,7 @@ function App() {
                 />
               }
             />
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
       </BrowserRouter>
