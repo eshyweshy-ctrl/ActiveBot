@@ -16,6 +16,10 @@ import {
   Database,
   Send,
   Globe,
+  Wallet,
+  Clock,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import {
   AreaChart,
@@ -26,6 +30,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { toast } from "sonner";
 
 const Dashboard = ({
   botStatus,
@@ -34,6 +39,7 @@ const Dashboard = ({
   trades,
   pnlHistory,
   systemStatus,
+  walletInfo,
   onStart,
   onStop,
   onRefresh,
