@@ -159,4 +159,22 @@ BOT_PASSWORD=62411
 - ✅ CFGI sentiment scraping working
 - ✅ Dashboard and UI fully functional
 - ✅ Bot runs in dry-run mode by default
-- ⏳ Waiting for extreme sentiment (CFGI < 20 or > 80) to trigger actual trades
+- ✅ **LIVE TRADING WORKING** (Fixed 2026-02-23)
+
+### 2026-02-23 - CRITICAL FIX: Polymarket Trade Execution
+**Problem:** Trades were failing with "not enough balance / allowance" or "invalid signature" errors.
+
+**Root Cause:** The `py-clob-client` was not configured correctly for Gnosis Safe proxy wallets:
+1. `signature_type=2` (POLY_GNOSIS_SAFE) is required
+2. `funder` parameter MUST be set to the proxy wallet address (not the EOA)
+
+**Solution:**
+- EOA Signer: `0xD929737cc880A6B019a2666d74860c44b7a38F44` (derived from private key)
+- Proxy Wallet: `0x08bc04f888702843ef83370ffcf9c9856bcfa12d` (Gnosis Safe with funds)
+- Added `POLYMARKET_PROXY_ADDRESS` to `.env` on server
+
+**Required .env variables for trading:**
+```
+POLYMARKET_PRIVATE_KEY=0x598cf1db...  # EOA private key
+POLYMARKET_PROXY_ADDRESS=0x08bc04f888702843ef83370ffcf9c9856bcfa12d  # Gnosis Safe proxy
+```
