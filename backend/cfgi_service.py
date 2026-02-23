@@ -1,9 +1,10 @@
 """
-CFGI.io Sentiment Data Service
+CFGI.io Sentiment Data Service - Using Web Scraping for Real Data
 """
 import os
 import logging
 import httpx
+import re
 from typing import Optional, Dict
 from datetime import datetime, timezone
 
@@ -12,52 +13,125 @@ logger = logging.getLogger(__name__)
 class CFGIService:
     """Service to fetch Crypto Fear & Greed Index data from CFGI.io"""
     
-    BASE_URL = "https://cfgi.io/api"
+    # Map asset symbols to CFGI.io page URLs
+    ASSET_URLS = {
+        "BTC": "https://cfgi.io/bitcoin-fear-greed-index/",
+        "ETH": "https://cfgi.io/ethereum-fear-greed-index/",
+        "SOL": "https://cfgi.io/solana-fear-greed-index/"
+    }
     
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("CFGI_API_KEY", "")
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        self._cache = {}
+        self._cache_time = {}
+        self._cache_ttl = 60  # Cache for 60 seconds
     
     async def get_sentiment(self, asset: str = "BTC") -> Dict:
         """
-        Fetch current sentiment for an asset
+        Fetch current sentiment for an asset from CFGI.io
         
         Returns:
             Dict with score, signal, and timestamp
         """
+        # Check cache
+        cache_key = f"{asset}_sentiment"
+        if cache_key in self._cache:
+            cache_age = (datetime.now(timezone.utc) - self._cache_time[cache_key]).total_seconds()
+            if cache_age < self._cache_ttl:
+                return self._cache[cache_key]
+        
         try:
-            # CFGI.io API endpoint structure
-            # For now, we'll use a fallback to the main Fear & Greed index
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+            # Try to scrape CFGI.io page for the asset
+            if asset in self.ASSET_URLS:
+                score = await self._scrape_cfgi_page(asset)
+                if score is not None:
+                    result = {
+                        "score": score,
+                        "asset": asset,
+                        "timestamp": datetime.now(timezone.utc),
+                        "signal": self._determine_signal(score),
+                        "source": "CFGI.io"
+                    }
+                    self._cache[cache_key] = result
+                    self._cache_time[cache_key] = datetime.now(timezone.utc)
+                    return result
             
-            # Try the multi-asset endpoint
-            url = f"{self.BASE_URL}/sentiment/{asset.lower()}"
-            
-            response = await self.client.get(url, headers=headers)
-            
-            if response.status_code == 200:
-                data = response.json()
-                score = data.get("value", data.get("score", 50))
-                return {
-                    "score": int(score),
-                    "asset": asset,
-                    "timestamp": datetime.now(timezone.utc),
-                    "signal": self._determine_signal(int(score))
-                }
-            else:
-                logger.warning(f"CFGI API returned {response.status_code}, using fallback")
-                return await self._get_alternative_sentiment(asset)
+            # Fallback to Alternative.me
+            logger.warning(f"Could not scrape CFGI.io for {asset}, using fallback")
+            return await self._get_alternative_sentiment(asset)
                 
         except Exception as e:
             logger.error(f"Error fetching CFGI data: {e}")
             return await self._get_alternative_sentiment(asset)
     
+    async def _scrape_cfgi_page(self, asset: str) -> Optional[int]:
+        """
+        Scrape the CFGI.io page to get the current fear & greed score
+        """
+        try:
+            url = self.ASSET_URLS.get(asset)
+            if not url:
+                return None
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
+            
+            response = await self.client.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # Look for the "Now" score in the Historical Values section
+                # Pattern: "Now" followed by sentiment label and score number
+                # Example: "Now\n\nNeutral49" or "Now\nNeutral\n49"
+                
+                # Try multiple patterns
+                patterns = [
+                    # Pattern 1: Look for "Now" section with score
+                    r'Now\s*(?:Extreme Fear|Fear|Neutral|Greed|Extreme Greed)\s*(\d+)',
+                    # Pattern 2: Score in span or div after sentiment
+                    r'(?:Extreme Fear|Fear|Neutral|Greed|Extreme Greed)\s*(\d+)\s*</li>',
+                    # Pattern 3: More flexible
+                    r'Now[^0-9]*(\d{1,3})',
+                    # Pattern 4: Look for "Live" score
+                    r'Live[^0-9]*Score[^0-9]*Now[^0-9]*(?:Neutral|Fear|Greed)[^0-9]*(\d+)',
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        score = int(match.group(1))
+                        if 0 <= score <= 100:
+                            logger.info(f"CFGI.io scraped score for {asset}: {score}")
+                            return score
+                
+                # Try to find score in JSON data
+                json_pattern = r'"value"\s*:\s*(\d+)'
+                json_match = re.search(json_pattern, html)
+                if json_match:
+                    score = int(json_match.group(1))
+                    if 0 <= score <= 100:
+                        logger.info(f"CFGI.io JSON score for {asset}: {score}")
+                        return score
+                
+                logger.warning(f"Could not find score on CFGI.io page for {asset}")
+                return None
+            else:
+                logger.warning(f"CFGI.io returned status {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error scraping CFGI.io: {e}")
+            return None
+    
     async def _get_alternative_sentiment(self, asset: str) -> Dict:
         """
         Fallback to Alternative.me Fear & Greed Index API (free, no key needed)
+        Note: This only provides overall crypto sentiment, not per-asset
         """
         try:
             url = "https://api.alternative.me/fng/?limit=1"
@@ -72,7 +146,8 @@ class CFGIService:
                     "score": score,
                     "asset": asset,
                     "timestamp": datetime.now(timezone.utc),
-                    "signal": self._determine_signal(score)
+                    "signal": self._determine_signal(score),
+                    "source": "Alternative.me (fallback)"
                 }
         except Exception as e:
             logger.error(f"Alternative API also failed: {e}")
@@ -82,7 +157,8 @@ class CFGIService:
             "score": 50,
             "asset": asset,
             "timestamp": datetime.now(timezone.utc),
-            "signal": "HOLD"
+            "signal": "HOLD",
+            "source": "default"
         }
     
     def _determine_signal(self, score: int) -> str:
@@ -137,7 +213,8 @@ class SimulatedCFGIService:
             "score": score,
             "asset": asset,
             "timestamp": datetime.now(timezone.utc),
-            "signal": signal
+            "signal": signal,
+            "source": "simulated"
         }
     
     async def close(self):
