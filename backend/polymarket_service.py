@@ -55,6 +55,12 @@ class PolymarketService:
     
     def __init__(self, private_key: Optional[str] = None):
         self.private_key = private_key or os.environ.get("POLYMARKET_PRIVATE_KEY", "")
+        # Use explicit wallet address if provided (for cases where PK doesn't match trading wallet)
+        self.wallet_address = os.environ.get("POLYMARKET_WALLET_ADDRESS", "")
+        # API credentials for CLOB
+        self.api_key = os.environ.get("POLYMARKET_API_KEY", "")
+        self.api_secret = os.environ.get("POLYMARKET_API_SECRET", "")
+        self.api_passphrase = os.environ.get("POLYMARKET_API_PASSPHRASE", "")
         self.client = httpx.AsyncClient(timeout=30.0)
         self._clob_client = None
         self._initialized = False
