@@ -251,43 +251,29 @@ class PolymarketService:
         try:
             await self._init_clob_client()
             
-            from py_clob_client.clob_types import OrderArgs, OrderType
+            from py_clob_client.clob_types import MarketOrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY, SELL
             
-            # Get current price from orderbook
-            orderbook = await self.get_order_book(token_id)
+            # Round amount to 2 decimals (Polymarket requirement)
+            amount = round(float(amount_usdc), 2)
             
-            # For market buy, use best ask price
-            if is_buy and orderbook.get('asks'):
-                price = float(orderbook['asks'][0]['price'])
-            elif not is_buy and orderbook.get('bids'):
-                price = float(orderbook['bids'][0]['price'])
-            else:
-                price = 0.5  # Default midpoint
+            # Ensure minimum amount
+            if amount < 1.0:
+                amount = 1.0
             
-            # Ensure price is within valid range and round to 2 decimals (Polymarket requirement)
-            price = round(max(0.01, min(0.99, price)), 2)
+            side = BUY if is_buy else SELL
             
-            # Calculate size based on USDC amount and price
-            # Round size to 2 decimals (maker amount max accuracy)
-            size = round(amount_usdc / price, 2)
+            logger.info(f"[LIVE] Market order: amount={amount} USDC, side={side}")
             
-            # Ensure minimum size
-            if size < 0.01:
-                size = 0.01
-            
-            logger.info(f"[LIVE] Order details: price={price}, size={size}")
-            
-            # Create market order
-            order_args = OrderArgs(
+            # Create market order using MarketOrderArgs
+            market_order_args = MarketOrderArgs(
                 token_id=token_id,
-                price=price,
-                size=size,
-                side=BUY if is_buy else SELL
+                amount=amount,
+                side=side
             )
             
-            # Build and sign the order
-            signed_order = self._clob_client.create_order(order_args)
+            # Build and sign the market order
+            signed_order = self._clob_client.create_market_order(market_order_args)
             
             # Submit order as FOK (Fill-Or-Kill) for market execution
             response = self._clob_client.post_order(signed_order, OrderType.FOK)
@@ -298,7 +284,7 @@ class PolymarketService:
                     "success": True,
                     "order_id": response.get('orderID', ''),
                     "status": "matched",
-                    "executed_price": price,
+                    "executed_price": response.get('executedPrice', 0),
                     "tx_hash": response.get('transactionsHashes', [None])[0],
                     "simulated": False
                 }
