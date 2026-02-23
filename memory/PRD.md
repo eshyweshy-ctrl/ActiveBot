@@ -20,21 +20,35 @@ Build ACTIVEBOT - a cloud-hosted automated trading bot that reads crypto sentime
 
 ## Core Requirements (Static)
 - [x] CFGI sentiment data polling
-- [x] Polymarket market discovery (15-min crypto markets)
+- [x] Polymarket 15-minute market discovery (FIXED 2026-02-23)
 - [x] Automated trading based on extreme sentiment
 - [x] Visual dashboard with P&L tracking
 - [x] Trade history with win/loss stats
 - [x] Bet amount slider control ($1-$1000)
 - [x] Dry-run mode for testing
-- [x] Telegram notification support
+- [x] Telegram notification support (VERIFIED WORKING 2026-02-23)
 
-## What's Been Implemented (2026-02-23)
+## What's Been Implemented
+
+### 2026-02-23 (Latest Session)
+**🔧 CRITICAL FIX: Polymarket 15-Minute Market Integration**
+- Fixed market discovery using correct dynamic slug pattern: `{asset}-updown-15m-{unix_timestamp}`
+- Markets are now correctly discovered via: `https://gamma-api.polymarket.com/events?slug={slug}`
+- Verified working for BTC, ETH, and SOL 15-minute markets
+- Added `/api/markets/test` endpoint for debugging market discovery
+
+**✅ VERIFIED: Telegram Notifications Working**
+- Confirmed Telegram messages are being sent and received
+- Bot start/stop notifications working
+- Scanning status updates working
+- Trade alerts configured (will trigger on extreme sentiment)
+
 ### Backend
 - FastAPI server with CORS support
 - MongoDB integration for trades and config storage
-- CFGI sentiment service (with fallback to Alternative.me API)
-- Polymarket service (simulated for dry-run, ready for live integration)
-- Telegram notification service
+- CFGI sentiment service (web scraping from cfgi.io with fallback)
+- **Polymarket service with correct 15-minute market discovery**
+- Telegram notification service (verified working)
 - Bot control endpoints (start/stop/status)
 - Trade history and statistics APIs
 - Configuration management APIs
@@ -46,20 +60,41 @@ Build ACTIVEBOT - a cloud-hosted automated trading bot that reads crypto sentime
 - Dark mode trading terminal aesthetic (JetBrains Mono + Inter fonts)
 - Responsive Bento Grid layout
 
+## Technical Implementation Details
+
+### Polymarket 15-Minute Market Slug Pattern
+```
+Format: {asset}-updown-15m-{unix_timestamp}
+Examples:
+- btc-updown-15m-1771859700
+- eth-updown-15m-1771859700
+- sol-updown-15m-1771859700
+```
+
+The timestamp represents the START of the 15-minute trading window, rounded down to the nearest 15-minute boundary.
+
+### API Endpoints
+- `GET /api/markets` - Lists all discovered 15-minute crypto markets
+- `GET /api/markets/test` - Tests Polymarket API connection and market discovery
+- `POST /api/bot/start` - Starts the trading bot
+- `POST /api/bot/stop` - Stops the trading bot
+- `GET /api/sentiment/current` - Gets current CFGI sentiment for all assets
+- `POST /api/telegram/test` - Tests Telegram connection
+
 ## Prioritized Backlog
 
-### P0 - Critical (Completed)
+### P0 - Critical (All Completed ✅)
 - [x] Core trading loop
 - [x] Sentiment-based decision engine
 - [x] Visual dashboard
 - [x] Bet amount control
+- [x] Polymarket 15-minute market discovery
+- [x] Telegram notifications
 
-### P1 - High Priority (For Live Trading)
-- [ ] Connect to real Polymarket API (py-clob-client SDK integration)
-- [ ] Connect to real CFGI.io API with paid tier
-- [ ] Telegram bot token configuration (user needs to create bot via @BotFather)
-- [ ] Wallet balance display
-- [ ] Token approval handling for USDC/CTF
+### P1 - High Priority (For Live Trading on User's Server)
+- [ ] Verify live trading with real Polymarket orders (requires user to fund wallet)
+- [ ] Test with extreme sentiment conditions (wait for CFGI < 20 or > 80)
+- [ ] Deploy updated code to user's DigitalOcean droplet
 
 ### P2 - Medium Priority
 - [ ] Multi-timeframe support (1H, 4H markets)
@@ -73,19 +108,43 @@ Build ACTIVEBOT - a cloud-hosted automated trading bot that reads crypto sentime
 - [ ] API rate limiting dashboard
 - [ ] Backtesting with historical data
 
-## Next Tasks
-1. Create Telegram bot via @BotFather and configure bot token
-2. Test with real CFGI.io API key
-3. Set up token approvals for live trading
-4. Add wallet balance monitoring
-5. Railway/Render deployment configuration
+## Deployment Instructions for User's Server
 
-## Environment Configuration
-- Backend: FastAPI on port 8001
-- Frontend: React on port 3000
-- Database: MongoDB (activebot_db)
-- Mode: DRY RUN (simulated trades)
+### Prerequisites
+The user has a DigitalOcean droplet at `64.227.170.252` with the code deployed to `/opt/activebot/`.
 
-## API Keys Stored
-- CFGI_API_KEY: Configured
-- POLYMARKET_PRIVATE_KEY: Configured (rotate before live deployment)
+### Update Procedure
+1. SSH into the server: `ssh root@64.227.170.252`
+2. Navigate to the project: `cd /opt/activebot`
+3. Pull latest changes: `git pull origin main`
+4. Rebuild and restart containers:
+   ```bash
+   docker-compose down
+   docker-compose up -d --build
+   ```
+5. Check logs: `docker logs -f activebot-backend`
+
+### Environment Variables (in /opt/activebot/.env)
+```
+CFGI_API_KEY=28418_b2ba_ebf6bface1
+POLYMARKET_PRIVATE_KEY=0x90b866fe220739cf836be67fdab7143b762a3a356721d96d262246ea69ae2735
+RPC_URL=https://polygon-rpc.com
+TRADE_SIZE_USDC=1
+NETWORK=polygon
+TELEGRAM_BOT_TOKEN=8577956930:AAH8QJNbyKeCKVtUeMkZDsl9exp_TBL0gUU
+TELEGRAM_CHAT_ID=875284528
+REACT_APP_BACKEND_URL=http://64.227.170.252:8001
+BOT_PASSWORD=62411
+```
+
+## Files Changed (2026-02-23)
+- `/app/backend/polymarket_service.py` - Complete rewrite with correct market discovery
+- `/app/backend/server.py` - Added `/api/markets/test` endpoint and improved `/api/markets` response
+
+## Current State
+- ✅ Polymarket 15-minute markets discoverable
+- ✅ Telegram notifications working
+- ✅ CFGI sentiment scraping working
+- ✅ Dashboard and UI fully functional
+- ✅ Bot runs in dry-run mode by default
+- ⏳ Waiting for extreme sentiment (CFGI < 20 or > 80) to trigger actual trades
