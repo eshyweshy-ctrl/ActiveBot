@@ -265,11 +265,16 @@ class PolymarketService:
             else:
                 price = 0.5  # Default midpoint
             
-            # Ensure price is within valid range
-            price = max(0.01, min(0.99, price))
+            # Ensure price is within valid range and round to 2 decimals (Polymarket requirement)
+            price = round(max(0.01, min(0.99, price)), 2)
             
             # Calculate size based on USDC amount and price
-            size = amount_usdc / price
+            # Round size to 2 decimals (maker amount max accuracy)
+            size = round(amount_usdc / price, 2)
+            
+            # Ensure minimum size
+            if size < 0.01:
+                size = 0.01
             
             logger.info(f"[LIVE] Order details: price={price}, size={size}")
             
