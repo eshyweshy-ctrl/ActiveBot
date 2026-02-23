@@ -387,10 +387,13 @@ class PolymarketService:
     async def get_wallet_info(self) -> Dict:
         """Get wallet information including address and balances"""
         wallet_address = self.get_wallet_address()
+        proxy_address = self.proxy_address if self.proxy_address else wallet_address
         
         result = {
             "address": wallet_address,
             "address_short": f"{wallet_address[:6]}...{wallet_address[-4:]}" if wallet_address else None,
+            "proxy_address": proxy_address,
+            "proxy_address_short": f"{proxy_address[:6]}...{proxy_address[-4:]}" if proxy_address else None,
             "usdc_balance": 0.0,
             "matic_balance": 0.0,
             "polymarket_balance": 0.0,
@@ -404,22 +407,22 @@ class PolymarketService:
             return result
         
         try:
-            # Get Polymarket positions value from Data API
+            # Get Polymarket positions value from Data API (using proxy if available)
+            check_address = proxy_address if proxy_address else wallet_address
             try:
                 response = await self.client.get(
                     f"https://data-api.polymarket.com/value",
-                    params={"user": wallet_address}
+                    params={"user": check_address}
                 )
                 if response.status_code == 200:
                     data = response.json()
                     if data and len(data) > 0:
-                        result["polymarket_balance"] = float(data[0].get("value", 0))
-                        result["positions_value"] = result["polymarket_balance"]
+                        result["positions_value"] = float(data[0].get("value", 0))
             except Exception as e:
                 logger.warning(f"Could not fetch Polymarket positions: {e}")
             
-            # Get USDC balance from Polygon (on-chain wallet balance)
-            # Check both USDC contracts - PoS and Bridged (USDC.e)
+            # Get Polymarket USDC balance from proxy wallet (this is "available to trade")
+            # Check both USDC contracts on proxy wallet
             try:
                 rpc_urls = [
                     "https://polygon-bor-rpc.publicnode.com",
@@ -427,14 +430,51 @@ class PolymarketService:
                 ]
                 usdc_contracts = [
                     ("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", 6),  # USDC (PoS)
-                    ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),  # USDC.e (Bridged) - Native USDC
+                    ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),  # USDC.e (Bridged)
+                ]
+                
+                polymarket_usdc = 0.0
+                for rpc_url in rpc_urls:
+                    try:
+                        for usdc_contract, decimals in usdc_contracts:
+                            call_data = f"0x70a08231000000000000000000000000{check_address[2:].lower()}"
+                            payload = {
+                                "jsonrpc": "2.0",
+                                "method": "eth_call",
+                                "params": [{"to": usdc_contract, "data": call_data}, "latest"],
+                                "id": 1
+                            }
+                            
+                            response = await self.client.post(rpc_url, json=payload, timeout=5)
+                            if response.status_code == 200:
+                                data = response.json()
+                                if "result" in data and data["result"] not in ["0x", "0x0", ""]:
+                                    balance_wei = int(data["result"], 16)
+                                    polymarket_usdc += balance_wei / (10 ** decimals)
+                        
+                        if polymarket_usdc > 0:
+                            result["polymarket_balance"] = polymarket_usdc
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                logger.warning(f"Could not fetch Polymarket USDC balance: {e}")
+            
+            # Get main wallet USDC balance (on-chain wallet balance)
+            try:
+                rpc_urls = [
+                    "https://polygon-bor-rpc.publicnode.com",
+                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
+                ]
+                usdc_contracts = [
+                    ("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", 6),  # USDC (PoS)
+                    ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6),  # USDC.e (Bridged)
                 ]
                 
                 total_usdc = 0.0
                 for rpc_url in rpc_urls:
                     try:
                         for usdc_contract, decimals in usdc_contracts:
-                            # balanceOf(address) selector: 0x70a08231
                             call_data = f"0x70a08231000000000000000000000000{wallet_address[2:].lower()}"
                             
                             payload = {
