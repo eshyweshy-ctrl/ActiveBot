@@ -387,6 +387,7 @@ class PolymarketService:
             "address_short": f"{wallet_address[:6]}...{wallet_address[-4:]}" if wallet_address else None,
             "usdc_balance": 0.0,
             "matic_balance": 0.0,
+            "polymarket_balance": 0.0,
             "positions_value": 0.0,
             "total_value": 0.0,
             "error": None
@@ -397,67 +398,84 @@ class PolymarketService:
             return result
         
         try:
-            # Get USDC balance from Data API
-            data_api = "https://data-api.polymarket.com"
-            
-            # Try to get positions value
+            # Get Polymarket positions value from Data API
             try:
                 response = await self.client.get(
-                    f"{data_api}/value",
+                    f"https://data-api.polymarket.com/value",
                     params={"user": wallet_address}
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    result["positions_value"] = float(data.get("value", 0))
-            except:
-                pass
+                    if data and len(data) > 0:
+                        result["polymarket_balance"] = float(data[0].get("value", 0))
+                        result["positions_value"] = result["polymarket_balance"]
+            except Exception as e:
+                logger.warning(f"Could not fetch Polymarket positions: {e}")
             
-            # Get USDC balance from polygon RPC
+            # Get USDC balance from Polygon (on-chain wallet balance)
             try:
-                # Use a reliable public RPC
-                rpc_url = "https://polygon-mainnet.g.alchemy.com/v2/demo"
+                # Use multiple RPC endpoints for reliability
+                rpc_urls = [
+                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
+                    "https://polygon-bor-rpc.publicnode.com",
+                    "https://polygon.llamarpc.com"
+                ]
                 usdc_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
                 
-                # Simple balance check using eth_call
                 # balanceOf(address) selector: 0x70a08231
                 call_data = f"0x70a08231000000000000000000000000{wallet_address[2:].lower()}"
                 
-                payload = {
-                    "jsonrpc": "2.0",
-                    "method": "eth_call",
-                    "params": [{"to": usdc_contract, "data": call_data}, "latest"],
-                    "id": 1
-                }
-                
-                response = await self.client.post(rpc_url, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data and data["result"] != "0x":
-                        balance_wei = int(data["result"], 16)
-                        result["usdc_balance"] = balance_wei / 1e6  # USDC has 6 decimals
+                for rpc_url in rpc_urls:
+                    try:
+                        payload = {
+                            "jsonrpc": "2.0",
+                            "method": "eth_call",
+                            "params": [{"to": usdc_contract, "data": call_data}, "latest"],
+                            "id": 1
+                        }
+                        
+                        response = await self.client.post(rpc_url, json=payload, timeout=5)
+                        if response.status_code == 200:
+                            data = response.json()
+                            if "result" in data and data["result"] not in ["0x", "0x0"]:
+                                balance_wei = int(data["result"], 16)
+                                result["usdc_balance"] = balance_wei / 1e6  # USDC has 6 decimals
+                                break
+                    except:
+                        continue
             except Exception as e:
                 logger.warning(f"Could not fetch USDC balance: {e}")
             
             # Get MATIC balance
             try:
-                rpc_url = "https://polygon-mainnet.g.alchemy.com/v2/demo"
-                payload = {
-                    "jsonrpc": "2.0",
-                    "method": "eth_getBalance",
-                    "params": [wallet_address, "latest"],
-                    "id": 1
-                }
+                rpc_urls = [
+                    "https://polygon-mainnet.g.alchemy.com/v2/demo",
+                    "https://polygon-bor-rpc.publicnode.com"
+                ]
                 
-                response = await self.client.post(rpc_url, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        balance_wei = int(data["result"], 16)
-                        result["matic_balance"] = balance_wei / 1e18
+                for rpc_url in rpc_urls:
+                    try:
+                        payload = {
+                            "jsonrpc": "2.0",
+                            "method": "eth_getBalance",
+                            "params": [wallet_address, "latest"],
+                            "id": 1
+                        }
+                        
+                        response = await self.client.post(rpc_url, json=payload, timeout=5)
+                        if response.status_code == 200:
+                            data = response.json()
+                            if "result" in data:
+                                balance_wei = int(data["result"], 16)
+                                result["matic_balance"] = balance_wei / 1e18
+                                break
+                    except:
+                        continue
             except Exception as e:
                 logger.warning(f"Could not fetch MATIC balance: {e}")
             
-            result["total_value"] = result["usdc_balance"] + result["positions_value"]
+            # Total = on-chain USDC + Polymarket positions
+            result["total_value"] = result["usdc_balance"] + result["polymarket_balance"]
             
         except Exception as e:
             logger.error(f"Error getting wallet info: {e}")
