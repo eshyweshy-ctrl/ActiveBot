@@ -167,14 +167,21 @@ BOT_PASSWORD=62411
 **Root Cause:** The `py-clob-client` was not configured correctly for Gnosis Safe proxy wallets:
 1. `signature_type=2` (POLY_GNOSIS_SAFE) is required
 2. `funder` parameter MUST be set to the proxy wallet address (not the EOA)
+3. **Minimum order SIZE is 5 tokens** (not just $1 value)
 
 **Solution:**
 - EOA Signer: `0xD929737cc880A6B019a2666d74860c44b7a38F44` (derived from private key)
 - Proxy Wallet: `0x08bc04f888702843ef83370ffcf9c9856bcfa12d` (Gnosis Safe with funds)
 - Added `POLYMARKET_PROXY_ADDRESS` to `.env` on server
+- Updated minimum order size to 5.1 tokens
 
 **Required .env variables for trading:**
 ```
 POLYMARKET_PRIVATE_KEY=0x598cf1db...  # EOA private key
 POLYMARKET_PROXY_ADDRESS=0x08bc04f888702843ef83370ffcf9c9856bcfa12d  # Gnosis Safe proxy
 ```
+
+## Verified Trade Executions
+- Order 0x6428cf7b46e84ceb2bb43bc8c7f6bdceda71295dd115a9b0bb5416a517acbe55 - matched ✅
+- Order 0xeaa13edde888ea431dd04ad7f407d06e3560410d35207fe160074b1b834b4fb4 - matched ✅
+- Order 0xb579553ce68bfd12db2a1bd476abb379b29bb118e38700460151c8954aff0e33 - matched ✅
